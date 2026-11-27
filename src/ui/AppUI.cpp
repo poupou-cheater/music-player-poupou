@@ -1895,23 +1895,46 @@ void AppUI::renderStagePanel(bool isFullscreen) {
 
     float availW = ImGui::GetContentRegionAvail().x;
     float totalH = ImGui::GetContentRegionAvail().y;
-    float mediaH = isFullscreen ? (totalH - 8.0f) : std::min(availW * 0.72f, totalH * 0.44f);
-    if (mediaH < 120.0f) mediaH = 120.0f;
 
-    if (m_player.hasVideo() && m_videoTexture.isValid()) {
-        float aspect = static_cast<float>(m_videoTexture.width()) / static_cast<float>(m_videoTexture.height());
-        float drawW = availW;
+    float easedFQ = 0.0f;
+    if (isFullscreen) {
+        float tgtFQ = m_focusQueueOpen ? 1.0f : 0.0f;
+        float fqStep = ImGui::GetIO().DeltaTime * 5.0f;
+        if (m_focusQueueAnim < tgtFQ) m_focusQueueAnim = std::min(1.0f, m_focusQueueAnim + fqStep);
+        else if (m_focusQueueAnim > tgtFQ) m_focusQueueAnim = std::max(0.0f, m_focusQueueAnim - fqStep);
+        easedFQ = 1.0f - std::pow(1.0f - m_focusQueueAnim, 3.0f);
+    }
+
+    float fullQueueW = isFullscreen ? std::clamp(availW * 0.23f, 230.0f, 320.0f) : 0.0f;
+    float queueW = isFullscreen ? (fullQueueW * easedFQ) : 0.0f;
+    float reopenBtnW = (isFullscreen && queueW < 4.0f) ? 30.0f : 0.0f;
+    float mediaAreaW = isFullscreen
+        ? std::max(160.0f, availW - queueW - (queueW >= 4.0f ? 10.0f : 0.0f) - reopenBtnW)
+        : availW;
+    float mediaH = isFullscreen ? (totalH - 4.0f) : std::min(mediaAreaW * 0.92f, totalH * 0.54f);
+    if (mediaH < 140.0f) mediaH = 140.0f;
+
+    if (isFullscreen) {
+        ImGui::BeginChild("##FocusMedia", ImVec2(mediaAreaW, totalH), false,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    }
+
+    auto drawFitMedia = [&](ImTextureID texId, uint32_t texW, uint32_t texH) {
+        float aspect = (texW > 0 && texH > 0) ? (static_cast<float>(texW) / static_cast<float>(texH)) : 1.0f;
+        float drawW = mediaAreaW;
         float drawH = drawW / aspect;
         if (drawH > mediaH) { drawH = mediaH; drawW = drawH * aspect; }
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - drawW) * 0.5f);
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (mediaAreaW - drawW) * 0.5f);
         if (isFullscreen) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (totalH - drawH) * 0.5f);
-        ImGui::Image(m_videoTexture.imguiId(), ImVec2(drawW, drawH));
+        ImGui::Image(texId, ImVec2(drawW, drawH));
+    };
+
+    if (m_player.hasVideo() && m_videoTexture.isValid()) {
+        drawFitMedia(m_videoTexture.imguiId(), m_videoTexture.width(), m_videoTexture.height());
+    } else if (m_coverTexture.isValid()) {
+        drawFitMedia(m_coverTexture.imguiId(), m_coverTexture.width(), m_coverTexture.height());
     } else {
-        ImTextureID coverId = m_coverTexture.isValid() ? m_coverTexture.imguiId() : m_defaultCoverTexture.imguiId();
-        float side = std::min(availW, mediaH);
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - side) * 0.5f);
-        if (isFullscreen) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (totalH - side) * 0.5f);
-        ImGui::Image(coverId, ImVec2(side, side));
+        drawFitMedia(m_defaultCoverTexture.imguiId(), m_defaultCoverTexture.width(), m_defaultCoverTexture.height());
     }
     if (ImGui::BeginPopupContextItem("##stage_media_ctx")) {
         if (ImGui::MenuItem("Arrêter la lecture")) {
@@ -1923,6 +1946,57 @@ void AppUI::renderStagePanel(bool isFullscreen) {
             m_fullscreenMode = false;
         }
         ImGui::EndPopup();
+    }
+
+    if (isFullscreen) {
+        ImGui::EndChild();
+
+        if (queueW < 4.0f) {
+            ImGui::SameLine();
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8.0f);
+            if (ImGui::Button("<##fq_open", ImVec2(26.0f, 36.0f))) {
+                m_focusQueueOpen = true;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Afficher la file d'attente");
+        } else {
+            ImGui::SameLine();
+            ImGui::BeginChild("##FocusQueue", ImVec2(0.0f, totalH), true,
+                              ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+            ImGui::TextColored(pal.accent, "À suivre");
+            ImGui::SameLine(std::max(80.0f, ImGui::GetWindowWidth() - 36.0f));
+            if (ImGui::SmallButton(">##fq_close")) {
+                m_focusQueueOpen = false;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rétracter");
+            ImGui::Separator();
+            ImGui::BeginChild("##FocusQueueList", ImVec2(0.0f, 0.0f), false);
+            if (m_queue.empty()) {
+                ImGui::TextDisabled("File d'attente vide.");
+            } else {
+                for (size_t i = 0; i < m_queue.size(); ++i) {
+                    const auto& q = m_queue[i];
+                    bool isQCur = (m_playingFromQueue && m_queueIndex == static_cast<int>(i));
+                    ImVec2 rowStart = ImGui::GetCursorPos();
+                    if (ImGui::Selectable(("##fq_" + std::to_string(i)).c_str(), isQCur, ImGuiSelectableFlags_AllowOverlap, ImVec2(0.0f, 52.0f))) {
+                        m_queueIndex = static_cast<int>(i);
+                        m_playingFromQueue = true;
+                        playTrack(q.playlistId, q.track);
+                        break;
+                    }
+                    ImVec2 rowEnd = ImGui::GetCursorPos();
+                    ImGui::SetCursorPos(ImVec2(rowStart.x + 2.0f, rowStart.y + 2.0f));
+                    ImGui::Image(getTrackThumb(q.track), ImVec2(48.0f, 48.0f));
+                    ImGui::SetCursorPos(ImVec2(rowStart.x + 58.0f, rowStart.y + 6.0f));
+                    ImGui::BeginGroup();
+                    ImGui::Text("%s", q.track.title.c_str());
+                    ImGui::TextDisabled("%s", q.track.artist.c_str());
+                    ImGui::EndGroup();
+                    ImGui::SetCursorPos(rowEnd);
+                }
+            }
+            ImGui::EndChild();
+            ImGui::EndChild();
+        }
     }
 
     if (!isFullscreen) {
