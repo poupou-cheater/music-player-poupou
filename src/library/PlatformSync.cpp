@@ -3,6 +3,7 @@
 
 #include <windows.h>
 #include <winhttp.h>
+#include <shellapi.h>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -182,6 +183,16 @@ void PlatformSync::checkUpdatesAsync() {
     m_fastQueue.push({TaskType::CheckUpdates, "", "", "", Platform::YouTubeMusic, false, 12, nullptr, nullptr});
 }
 
+void PlatformSync::installUpdateAsync() {
+    if (m_library.offlineMode()) return;
+    if (m_updateInstalling.exchange(true)) return;
+    {
+        std::lock_guard<std::mutex> lock(m_updateMutex);
+        m_updateStatus = "Préparation de la mise à jour...";
+    }
+    m_fastQueue.push({TaskType::InstallUpdate, "", "", "", Platform::YouTubeMusic, false, 12, nullptr, nullptr});
+}
+
 std::string PlatformSync::latestVersion() const {
     std::lock_guard<std::mutex> lock(m_updateMutex);
     return m_latestVersion;
@@ -190,6 +201,11 @@ std::string PlatformSync::latestVersion() const {
 std::string PlatformSync::updateUrl() const {
     std::lock_guard<std::mutex> lock(m_updateMutex);
     return m_updateUrl;
+}
+
+std::string PlatformSync::updateAssetUrl() const {
+    std::lock_guard<std::mutex> lock(m_updateMutex);
+    return m_updateAssetUrl;
 }
 
 std::string PlatformSync::updateStatus() const {
@@ -709,6 +725,7 @@ void PlatformSync::fastWorkerLoop() {
             bool foundUpdate = false;
             std::string newVer;
             std::string relUrl = "https://github.com/poupou-cheater/music-player-poupou/releases/latest";
+            std::string assetUrl;
             std::string status = std::string("À jour (v") + APP_VERSION + ")";
             if (hSession) {
                 WinHttpSetTimeouts(hSession, 3000, 3000, 4000, 4000);
@@ -744,6 +761,22 @@ void PlatformSync::fastWorkerLoop() {
                                         foundUpdate = true;
                                         newVer = tag;
                                         status = "Mise à jour disponible : v" + tag;
+                                        if (j.contains("assets") && j["assets"].is_array()) {
+                                            for (const auto& a : j["assets"]) {
+                                                std::string name = strOr(a, "name");
+                                                std::string dl = strOr(a, "browser_download_url");
+                                                if (dl.empty() || name.size() < 4) continue;
+                                                std::string low = name;
+                                                std::transform(low.begin(), low.end(), low.begin(), [](unsigned char c) {
+                                                    return static_cast<char>(std::tolower(c));
+                                                });
+                                                if (low.size() >= 4 && low.compare(low.size() - 4, 4, ".zip") == 0) {
+                                                    if (assetUrl.empty() || low.find("win") != std::string::npos) {
+                                                        assetUrl = dl;
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 } catch (...) {}
                             }
@@ -759,7 +792,109 @@ void PlatformSync::fastWorkerLoop() {
                 std::lock_guard<std::mutex> lock(m_updateMutex);
                 m_latestVersion = newVer;
                 m_updateUrl = relUrl;
+                m_updateAssetUrl = assetUrl;
                 m_updateStatus = status;
+            }
+        } else if (task.type == TaskType::InstallUpdate) {
+            std::string assetUrl = updateAssetUrl();
+            std::string ver = latestVersion();
+            auto setUpdSt = [&](const std::string& s) {
+                std::lock_guard<std::mutex> lock(m_updateMutex);
+                m_updateStatus = s;
+            };
+            if (assetUrl.empty()) {
+                setUpdSt("Aucun fichier .zip trouvé sur GitHub");
+                m_updateInstalling.store(false);
+            } else {
+                std::error_code ec;
+                fs::path updateDir = fs::temp_directory_path(ec) / "StreamPulseUpdate";
+                fs::path zipPath = updateDir / "update.zip";
+                fs::path extractDir = updateDir / "extracted";
+                fs::remove_all(extractDir, ec);
+                fs::remove(zipPath, ec);
+                fs::create_directories(extractDir, ec);
+
+                setUpdSt("Téléchargement mise à jour v" + ver + "...");
+                bool dlOk = downloadFileWinHttp(assetUrl, zipPath.string());
+                auto zipSize = fs::file_size(zipPath, ec);
+                if (!dlOk || ec || zipSize < 100000) {
+                    setUpdSt("Échec téléchargement mise à jour");
+                    m_updateInstalling.store(false);
+                } else {
+                    setUpdSt("Extraction dans Temp...");
+                    std::wstring cmdLine = L"powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"Expand-Archive -LiteralPath '"
+                        + zipPath.wstring() + L"' -DestinationPath '" + extractDir.wstring() + L"' -Force\"";
+                    STARTUPINFOW si{};
+                    si.cb = sizeof(si);
+                    PROCESS_INFORMATION pi{};
+                    std::vector<wchar_t> cmdBuf(cmdLine.begin(), cmdLine.end());
+                    cmdBuf.push_back(L'\0');
+                    DWORD extractExit = 1;
+                    if (CreateProcessW(nullptr, cmdBuf.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+                        WaitForSingleObject(pi.hProcess, 120000);
+                        GetExitCodeProcess(pi.hProcess, &extractExit);
+                        CloseHandle(pi.hThread);
+                        CloseHandle(pi.hProcess);
+                    }
+
+                    fs::path payloadDir;
+                    if (extractExit == 0) {
+                        if (fs::exists(extractDir / "StreamPulse.exe", ec)) {
+                            payloadDir = extractDir;
+                        } else {
+                            for (const auto& entry : fs::directory_iterator(extractDir, ec)) {
+                                if (entry.is_directory() && fs::exists(entry.path() / "StreamPulse.exe", ec)) {
+                                    payloadDir = entry.path();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if (payloadDir.empty()) {
+                        setUpdSt("Échec extraction (StreamPulse.exe introuvable)");
+                        m_updateInstalling.store(false);
+                    } else {
+                        wchar_t exeBuf[MAX_PATH]{};
+                        GetModuleFileNameW(nullptr, exeBuf, MAX_PATH);
+                        fs::path exePath(exeBuf);
+                        fs::path appDir = exePath.parent_path();
+                        DWORD pid = GetCurrentProcessId();
+
+                        fs::path batPath = updateDir / "apply_update.bat";
+                        {
+                            std::ofstream bat(batPath, std::ios::binary | std::ios::trunc);
+                            bat << "@echo off\r\n"
+                                << "chcp 65001 >nul\r\n"
+                                << "title Mise a jour StreamPulse v" << ver << "\r\n"
+                                << "echo Mise a jour de StreamPulse v" << ver << " en cours...\r\n"
+                                << "set \"PID=" << pid << "\"\r\n"
+                                << ":waitloop\r\n"
+                                << "tasklist /FI \"PID eq %PID%\" 2>nul | find \"%PID%\" >nul\r\n"
+                                << "if not errorlevel 1 (\r\n"
+                                << "    timeout /t 1 /nobreak >nul\r\n"
+                                << "    goto waitloop\r\n"
+                                << ")\r\n"
+                                << "echo Copie des nouveaux fichiers...\r\n"
+                                << "xcopy /E /I /Y \"" << payloadDir.string() << "\\*\" \"" << appDir.string() << "\\\" >nul\r\n"
+                                << "echo Relance de StreamPulse...\r\n"
+                                << "start \"\" \"" << exePath.string() << "\"\r\n"
+                                << "del /F /Q \"" << zipPath.string() << "\" >nul 2>&1\r\n"
+                                << "rmdir /S /Q \"" << extractDir.string() << "\" >nul 2>&1\r\n"
+                                << "exit\r\n";
+                        }
+
+                        std::wstring params = L"/c \"" + batPath.wstring() + L"\"";
+                        HINSTANCE res = ShellExecuteW(nullptr, L"open", L"cmd.exe", params.c_str(), nullptr, SW_SHOWNORMAL);
+                        if (reinterpret_cast<INT_PTR>(res) > 32) {
+                            setUpdSt("Redémarrage pour mise à jour...");
+                            m_updateReadyToRestart.store(true);
+                        } else {
+                            setUpdSt("Impossible de lancer l'installateur");
+                            m_updateInstalling.store(false);
+                        }
+                    }
+                }
             }
         }
 

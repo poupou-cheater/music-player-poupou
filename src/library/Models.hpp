@@ -207,6 +207,7 @@ struct AppSettings {
     bool autoHideTopBar = true;
     bool autoHideBottomBar = true;
     bool autoCheckUpdates = true;
+    bool autoInstallUpdates = false;
     bool enableMediaKeys = true;
     bool mediaKeysExclusive = true; // Intercept media keys exclusively for StreamPulse
     bool forceFocusOnMediaKey = false; // Bring app to foreground on media key

@@ -203,6 +203,7 @@ static void to_json(json& j, const AppSettings& s) {
         {"autoHideTopBar", s.autoHideTopBar},
         {"autoHideBottomBar", s.autoHideBottomBar},
         {"autoCheckUpdates", s.autoCheckUpdates},
+        {"autoInstallUpdates", s.autoInstallUpdates},
         {"enableMediaKeys", s.enableMediaKeys},
         {"mediaKeysExclusive", s.mediaKeysExclusive},
         {"forceFocusOnMediaKey", s.forceFocusOnMediaKey},
@@ -259,6 +260,7 @@ static void from_json(const json& j, AppSettings& s) {
     s.autoHideTopBar = j.value("autoHideTopBar", true);
     s.autoHideBottomBar = j.value("autoHideBottomBar", true);
     s.autoCheckUpdates = j.value("autoCheckUpdates", true);
+    s.autoInstallUpdates = j.value("autoInstallUpdates", false);
     s.enableMediaKeys = j.value("enableMediaKeys", true);
     s.mediaKeysExclusive = j.value("mediaKeysExclusive", true);
     s.forceFocusOnMediaKey = j.value("forceFocusOnMediaKey", false);

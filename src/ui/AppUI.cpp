@@ -450,6 +450,15 @@ void AppUI::handleShortcuts() {
 
 void AppUI::update(double dtSeconds) {
     m_thumbsUploadedThisFrame = 0;
+    if (m_sync.updateReadyToRestart() && m_window) {
+        glfwSetWindowShouldClose(m_window, GLFW_TRUE);
+        return;
+    }
+    if (!m_autoUpdateTriggered && m_sync.hasUpdateAvailable() && !m_sync.isInstallingUpdate() &&
+        !m_sync.updateAssetUrl().empty() && m_library.settings().autoInstallUpdates) {
+        m_autoUpdateTriggered = true;
+        m_sync.installUpdateAsync();
+    }
     handleShortcuts();
 
     // Mouse idle detection for 3s auto-hide in fullscreen
@@ -867,14 +876,28 @@ void AppUI::renderTopBar() {
     if (m_sync.hasUpdateAvailable()) {
         ImGui::SameLine(0.0f, 6.0f);
         ImGui::PushStyleColor(ImGuiCol_Text, pal.accent);
-        if (ImGui::Button("MAJ")) {
-            ShellExecuteA(nullptr, "open", m_sync.updateUrl().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        if (m_sync.isInstallingUpdate()) {
+            ImGui::Button("MAJ...");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("%s", m_sync.updateStatus().c_str());
+            }
+        } else {
+            if (ImGui::Button("MAJ")) {
+                if (!m_sync.updateAssetUrl().empty()) {
+                    m_sync.installUpdateAsync();
+                } else {
+                    ShellExecuteA(nullptr, "open", m_sync.updateUrl().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                }
+            }
+            drawHoverRect(pal.accent);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(!m_sync.updateAssetUrl().empty()
+                    ? "Installer la mise à jour v%s"
+                    : "Nouvelle version v%s disponible (ouvrir GitHub)",
+                    m_sync.latestVersion().c_str());
+            }
         }
         ImGui::PopStyleColor();
-        drawHoverRect(pal.accent);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Nouvelle version v%s disponible (ouvrir GitHub)", m_sync.latestVersion().c_str());
-        }
     }
 
     ImGui::PopStyleColor(3);
@@ -1812,11 +1835,18 @@ void AppUI::renderSettingsTab() {
             if (ImGui::Button("Vérifier##chk_upd")) {
                 m_sync.checkUpdatesAsync();
             }
+            if (ImGui::Checkbox("Installer automatiquement les mises à jour", &s.autoInstallUpdates)) changed = true;
             std::string updSt = m_sync.updateStatus();
             if (!updSt.empty()) {
-                ImGui::SameLine();
                 ImGui::TextColored(m_sync.hasUpdateAvailable() ? pal.accent : pal.textMuted, "%s", updSt.c_str());
-                if (m_sync.hasUpdateAvailable()) {
+                if (m_sync.hasUpdateAvailable() && !m_sync.isInstallingUpdate()) {
+                    if (!m_sync.updateAssetUrl().empty()) {
+                        ImGui::SameLine();
+                        std::string instLbl = "Installer v" + m_sync.latestVersion() + "##inst_upd";
+                        if (ImGui::Button(instLbl.c_str())) {
+                            m_sync.installUpdateAsync();
+                        }
+                    }
                     ImGui::SameLine();
                     if (ImGui::Button("Ouvrir GitHub##open_upd")) {
                         ShellExecuteA(nullptr, "open", m_sync.updateUrl().c_str(), nullptr, nullptr, SW_SHOWNORMAL);

@@ -38,10 +38,14 @@ public:
     bool isNetworkAvailable() const { return m_networkAvailable.load(); }
     void refreshNetworkStatusAsync();
     void checkUpdatesAsync();
+    void installUpdateAsync();
 
     bool hasUpdateAvailable() const { return m_updateAvailable.load(); }
+    bool isInstallingUpdate() const { return m_updateInstalling.load(); }
+    bool updateReadyToRestart() const { return m_updateReadyToRestart.load(); }
     std::string latestVersion() const;
     std::string updateUrl() const;
+    std::string updateAssetUrl() const;
     std::string updateStatus() const;
 
     void syncPlaylistAsync(const std::string& playlistId);
@@ -76,7 +80,8 @@ private:
         DownloadTrack,
         ResolveStream,
         SearchPlatform,
-        CheckUpdates
+        CheckUpdates,
+        InstallUpdate
     };
 
     struct Task {
@@ -134,9 +139,12 @@ private:
     std::atomic<bool> m_cancelDownloads{false};
     std::atomic<bool> m_networkAvailable{true};
     std::atomic<bool> m_updateAvailable{false};
+    std::atomic<bool> m_updateInstalling{false};
+    std::atomic<bool> m_updateReadyToRestart{false};
     mutable std::mutex m_updateMutex;
     std::string m_latestVersion;
     std::string m_updateUrl = "https://github.com/poupou-cheater/music-player-poupou/releases/latest";
+    std::string m_updateAssetUrl;
     std::string m_updateStatus;
     std::atomic<int> m_activeTasks{0};
     std::atomic<uint64_t> m_latestStreamSeq{0};

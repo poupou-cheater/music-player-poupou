@@ -125,6 +125,7 @@ private:
     double m_statsSaveAccum = 0.0;
     double m_discordAccum = 0.0;
     double m_autoSyncAccum = 0.0;
+    bool m_autoUpdateTriggered = false;
 
     // Pending stream open
     std::mutex m_pendingMutex;
