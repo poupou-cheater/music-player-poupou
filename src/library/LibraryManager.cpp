@@ -90,6 +90,7 @@ static void to_json(json& j, const Playlist& p) {
         {"autoSync", p.autoSync},
         {"autoDownload", p.autoDownload},
         {"preferVideo", p.preferVideo},
+        {"favorite", p.favorite},
         {"lastSynced", p.lastSynced},
         {"tracks", p.tracks},
         {"audioOverride", p.audioOverride}
@@ -104,6 +105,7 @@ static void from_json(const json& j, Playlist& p) {
     p.autoSync = j.value("autoSync", true);
     p.autoDownload = j.value("autoDownload", false);
     p.preferVideo = j.value("preferVideo", false);
+    p.favorite = j.value("favorite", false);
     p.lastSynced = j.value("lastSynced", "");
     if (j.contains("tracks")) {
         p.tracks = j.at("tracks").get<std::vector<Track>>();
@@ -432,6 +434,16 @@ void LibraryManager::renamePlaylist(const std::string& playlistId, const std::st
     for (auto& p : m_playlists) {
         if (p.id == playlistId) {
             p.name = newName;
+            break;
+        }
+    }
+}
+
+void LibraryManager::togglePlaylistFavorite(const std::string& playlistId) {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    for (auto& p : m_playlists) {
+        if (p.id == playlistId) {
+            p.favorite = !p.favorite;
             break;
         }
     }

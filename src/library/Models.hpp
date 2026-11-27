@@ -143,6 +143,7 @@ struct Playlist {
     bool autoSync = true;
     bool autoDownload = false;
     bool preferVideo = false;
+    bool favorite = false;
     std::string lastSynced;
     std::vector<Track> tracks;
     AudioOverride audioOverride;

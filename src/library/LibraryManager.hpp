@@ -25,6 +25,7 @@ public:
     std::string undoDeletePlaylist();
     void clearPlaylistLocalFiles(const std::string& playlistId);
     void renamePlaylist(const std::string& playlistId, const std::string& newName);
+    void togglePlaylistFavorite(const std::string& playlistId);
     void setPlaylistOptions(const std::string& playlistId, bool autoSync, bool autoDownload, bool preferVideo);
     void mergeSyncedPlaylist(const std::string& playlistId, const std::string& resolvedName,
                              const std::vector<Track>& fetchedTracks, const std::string& timestamp);

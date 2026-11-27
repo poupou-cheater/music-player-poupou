@@ -92,6 +92,7 @@ private:
     MainTab m_activeTab = MainTab::Playlists;
     std::string m_selectedPlaylistId;
     bool m_showOfflineOnlyView = false;
+    bool m_showLikedOnlyView = false;
 
     // Active playback & queue
     std::string m_currentPlaylistId;

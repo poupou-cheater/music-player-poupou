@@ -490,8 +490,8 @@ void AppUI::render() {
         ImGui::Spacing();
     }
 
-    float playerBarHeight = hideBars ? 0.0f : 90.0f;
-    float contentHeight = ImGui::GetContentRegionAvail().y - (hideBars ? 0.0f : (playerBarHeight + 14.0f));
+    float playerBarHeight = hideBars ? 0.0f : 76.0f;
+    float contentHeight = ImGui::GetContentRegionAvail().y - (hideBars ? 0.0f : (playerBarHeight + 12.0f));
     if (contentHeight < 180.0f) contentHeight = 180.0f;
 
     if (m_fullscreenMode) {
@@ -550,9 +550,15 @@ void AppUI::render() {
 
     if (!hideBars) {
         ImGui::Spacing();
-        ImGui::BeginChild("##PlayerBar", ImVec2(0.0f, playerBarHeight), true);
+        TemplatePalette barPal = activePalette();
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(barPal.bgSidebar.x + 0.04f, barPal.bgSidebar.y + 0.04f, barPal.bgSidebar.z + 0.06f, 1.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 0.0f));
+        ImGui::BeginChild("##PlayerBar", ImVec2(0.0f, playerBarHeight), false,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         renderPlayerBar();
         ImGui::EndChild();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
     }
 
     renderImportModal();
@@ -700,11 +706,22 @@ void AppUI::renderTopBar() {
 }
 
 void AppUI::renderSidebar() {
-    TemplatePalette pal = getTemplatePalette(m_library.activeTemplate());
+    TemplatePalette pal = activePalette();
+    auto playlists = m_library.playlistsCopy();
+
+    m_icons.draw("heart_filled", 18.0f, pal.accent);
+    ImGui::SameLine();
+    if (ImGui::Selectable("Titres Favoris", m_showLikedOnlyView)) {
+        m_showLikedOnlyView = true;
+        m_showOfflineOnlyView = false;
+    }
 
     m_icons.draw("downloaded", 18.0f, pal.accentSecondary);
     ImGui::SameLine();
-    if (ImGui::Selectable("Offline Downloads", m_showOfflineOnlyView)) m_showOfflineOnlyView = true;
+    if (ImGui::Selectable("Offline Downloads", m_showOfflineOnlyView)) {
+        m_showOfflineOnlyView = true;
+        m_showLikedOnlyView = false;
+    }
 
     if (m_library.canUndoDeletePlaylist()) {
         ImGui::Spacing();
@@ -713,16 +730,48 @@ void AppUI::renderSidebar() {
             if (!restored.empty()) {
                 m_selectedPlaylistId = restored;
                 m_showOfflineOnlyView = false;
+                m_showLikedOnlyView = false;
                 m_library.save();
             }
         }
     }
 
+    // Favorite Playlists section at top
+    std::vector<Playlist> favPlaylists;
+    for (const auto& p : playlists) {
+        if (p.favorite) favPlaylists.push_back(p);
+    }
+    if (!favPlaylists.empty()) {
+        ImGui::Separator();
+        ImGui::TextDisabled("PLAYLISTS FAVORITES");
+        for (const auto& pl : favPlaylists) {
+            bool selected = (!m_showOfflineOnlyView && !m_showLikedOnlyView && m_selectedPlaylistId == pl.id);
+            m_icons.draw("heart_filled", 14.0f, pal.accent);
+            ImGui::SameLine();
+            std::string label = pl.name + " (" + std::to_string(pl.tracks.size()) + ")##fav_" + pl.id;
+            if (ImGui::Selectable(label.c_str(), selected)) {
+                m_showOfflineOnlyView = false;
+                m_showLikedOnlyView = false;
+                m_selectedPlaylistId = pl.id;
+                auto st = m_library.settings();
+                st.selectedPlaylistId = pl.id;
+                m_library.updateSettings(st);
+                m_library.save();
+            }
+            if (ImGui::BeginPopupContextItem(("##sb_fav_ctx_" + pl.id).c_str())) {
+                if (ImGui::MenuItem("Retirer des favoris")) {
+                    m_library.togglePlaylistFavorite(pl.id);
+                    m_library.save();
+                }
+                ImGui::EndPopup();
+            }
+        }
+    }
+
     ImGui::Separator();
-    ImGui::TextDisabled("PLATFORMS & PLAYLISTS");
+    ImGui::TextDisabled("PLATEFORMES & PLAYLISTS");
     ImGui::Spacing();
 
-    auto playlists = m_library.playlistsCopy();
     const Platform order[] = { Platform::YouTubeMusic, Platform::YouTube, Platform::TikTok, Platform::Local };
 
     for (Platform plat : order) {
@@ -736,17 +785,25 @@ void AppUI::renderSidebar() {
         if (ImGui::TreeNodeEx(platformName(plat), ImGuiTreeNodeFlags_DefaultOpen)) {
             if (group.empty()) ImGui::TextDisabled("  (No playlists)");
             for (const auto& pl : group) {
-                bool selected = (!m_showOfflineOnlyView && m_selectedPlaylistId == pl.id);
+                bool selected = (!m_showOfflineOnlyView && !m_showLikedOnlyView && m_selectedPlaylistId == pl.id);
                 m_icons.draw("playlist", 15.0f, selected ? pal.accent : pal.textMuted);
                 ImGui::SameLine();
                 std::string label = pl.name + " (" + std::to_string(pl.tracks.size()) + ")##" + pl.id;
                 if (ImGui::Selectable(label.c_str(), selected)) {
                     m_showOfflineOnlyView = false;
+                    m_showLikedOnlyView = false;
                     m_selectedPlaylistId = pl.id;
                     auto st = m_library.settings();
                     st.selectedPlaylistId = pl.id;
                     m_library.updateSettings(st);
                     m_library.save();
+                }
+                if (ImGui::BeginPopupContextItem(("##sb_ctx_" + pl.id).c_str())) {
+                    if (ImGui::MenuItem(pl.favorite ? "Retirer des favoris" : "Ajouter aux favoris")) {
+                        m_library.togglePlaylistFavorite(pl.id);
+                        m_library.save();
+                    }
+                    ImGui::EndPopup();
                 }
             }
             ImGui::TreePop();
@@ -762,6 +819,46 @@ void AppUI::renderPlaylistsTab() {
     ImGui::SetNextItemWidth(240.0f);
     ImGui::InputTextWithHint("##PlFilter", "Filter playlist tracks...", m_searchBuf, sizeof(m_searchBuf));
     std::string filter(m_searchBuf);
+
+    if (m_showLikedOnlyView) {
+        ImGui::Separator();
+        m_icons.draw("heart_filled", 20.0f, pal.accent);
+        ImGui::SameLine();
+        ImGui::Text("Titres Favoris");
+        auto lists = m_library.playlistsCopy();
+        if (ImGui::BeginTable("##LikedTable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
+            ImGui::TableSetupColumn("Cover", ImGuiTableColumnFlags_WidthFixed, 56.0f);
+            ImGui::TableSetupColumn("Titre & Auteur", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Plateforme", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+            ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 96.0f);
+            ImGui::TableHeadersRow();
+            for (const auto& pl : lists) {
+                for (const auto& t : pl.tracks) {
+                    if (!t.liked) continue;
+                    if (!matchesFilter(t, filter)) continue;
+                    ImGui::TableNextRow(ImGuiTableRowFlags_None, 52.0f);
+                    ImGui::TableNextColumn();
+                    ImGui::Image(getTrackThumb(t), ImVec2(44.0f, 44.0f));
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%s", t.title.c_str());
+                    ImGui::TextDisabled("%s", t.artist.c_str());
+                    ImGui::TableNextColumn();
+                    ImGui::TextDisabled("%s", platformName(t.platform));
+                    ImGui::TableNextColumn();
+                    if (m_icons.button(("##play_lk_" + t.id).c_str(), "play", 18.0f, pal.accent)) playTrack(pl.id, t);
+                    ImGui::SameLine();
+                    if (m_icons.button(("##q_lk_" + t.id).c_str(), "queue", 18.0f, pal.textPrimary)) enqueueTrack(pl.id, t);
+                    ImGui::SameLine();
+                    if (m_icons.button(("##unlk_" + t.id).c_str(), "heart_filled", 18.0f, pal.accent)) {
+                        m_library.toggleTrackLike(pl.id, t.id);
+                        m_library.save();
+                    }
+                }
+            }
+            ImGui::EndTable();
+        }
+        return;
+    }
 
     if (m_showOfflineOnlyView) {
         ImGui::Separator();
@@ -807,6 +904,11 @@ void AppUI::renderPlaylistsTab() {
     m_icons.draw(platformIconKey(pl.platform), 20.0f, pal.accent);
     ImGui::SameLine();
     ImGui::Text("%s", pl.name.c_str());
+    ImGui::SameLine();
+    if (m_icons.button("##pl_fav", pl.favorite ? "heart_filled" : "heart", 18.0f, pl.favorite ? pal.accent : pal.textMuted)) {
+        m_library.togglePlaylistFavorite(pl.id);
+        m_library.save();
+    }
 
     bool autoSync = pl.autoSync, autoDl = pl.autoDownload, prefVid = pl.preferVideo;
     bool optsChanged = false;
@@ -1635,92 +1737,130 @@ void AppUI::renderStagePanel(bool isFullscreen) {
 }
 
 void AppUI::renderPlayerBar() {
-    TemplatePalette pal = getTemplatePalette(m_library.activeTemplate());
+    TemplatePalette pal = activePalette();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 winPos = ImGui::GetWindowPos();
+    float winW = ImGui::GetWindowWidth();
+    float winH = ImGui::GetWindowHeight();
 
-    // Top edge: Full-width YouTube Music Red Seek Bar
+    // 1. Sleek full-width 3px YouTube Music Seek Bar flush at top edge
     double pos = m_player.positionSeconds();
     double dur = m_player.durationSeconds();
-    float posF = static_cast<float>(pos);
-    float maxF = (dur > 0.1) ? static_cast<float>(dur) : 100.0f;
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 2.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize, 10.0f);
-    ImGui::SetNextItemWidth(-1.0f);
-    if (ImGui::SliderFloat("##Seek", &posF, 0.0f, maxF, "")) {
-        if (dur > 0.1) m_player.seek(static_cast<double>(posF));
-    }
-    ImGui::PopStyleVar(2);
+    float frac = (dur > 0.1) ? std::clamp(static_cast<float>(pos / dur), 0.0f, 1.0f) : 0.0f;
 
-    // Left: Prev / Play-Pause / Next + Time
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.0f);
-    if (m_icons.button("##prev", "prev", 22.0f, pal.textPrimary)) playPrev();
-    ImGui::SameLine(0.0f, 8.0f);
-    if (m_icons.button("##playpause", m_player.isPlaying() ? "pause" : "play", 28.0f, pal.accent)) {
+    ImGui::SetCursorScreenPos(winPos);
+    ImGui::InvisibleButton("##SeekBarHit", ImVec2(winW, 12.0f));
+    bool hovered = ImGui::IsItemHovered();
+    bool active = ImGui::IsItemActive();
+    if ((active || ImGui::IsItemClicked()) && dur > 0.1) {
+        float mx = ImGui::GetIO().MousePos.x;
+        float nf = std::clamp((mx - winPos.x) / std::max(1.0f, winW), 0.0f, 1.0f);
+        m_player.seek(static_cast<double>(nf) * dur);
+        frac = nf;
+    }
+    float barH = (hovered || active) ? 4.5f : 2.5f;
+    ImU32 trackCol = ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 0.22f));
+    ImU32 fillCol = ImGui::GetColorU32(pal.accent);
+    dl->AddRectFilled(winPos, ImVec2(winPos.x + winW, winPos.y + barH), trackCol);
+    dl->AddRectFilled(winPos, ImVec2(winPos.x + winW * frac, winPos.y + barH), fillCol);
+    if (hovered || active || dur > 0.1) {
+        float knobR = (hovered || active) ? 6.0f : 4.5f;
+        dl->AddCircleFilled(ImVec2(winPos.x + winW * frac, winPos.y + barH * 0.5f), knobR, fillCol);
+    }
+
+    // Transparent borderless icon button style
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.14f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.24f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 22.0f);
+
+    float centerY = (winH + barH) * 0.5f;
+
+    // Left: Prev (26) / Play-Pause (34) / Next (26) + Time
+    ImGui::SetCursorPos(ImVec2(16.0f, centerY - 17.0f));
+    if (m_icons.button("##prev", "prev", 26.0f, pal.textPrimary)) playPrev();
+    ImGui::SameLine(0.0f, 10.0f);
+    ImGui::SetCursorPosY(centerY - 21.0f);
+    if (m_icons.button("##playpause", m_player.isPlaying() ? "pause" : "play", 34.0f, pal.textPrimary)) {
         if (m_player.isOpen()) m_player.togglePlayPause();
     }
-    ImGui::SameLine(0.0f, 8.0f);
-    if (m_icons.button("##next", "next", 22.0f, pal.textPrimary)) playNext();
-    ImGui::SameLine(0.0f, 14.0f);
+    ImGui::SameLine(0.0f, 10.0f);
+    ImGui::SetCursorPosY(centerY - 17.0f);
+    if (m_icons.button("##next", "next", 26.0f, pal.textPrimary)) playNext();
+    ImGui::SameLine(0.0f, 16.0f);
+    ImGui::SetCursorPosY(centerY - 9.0f);
     ImGui::TextDisabled("%s / %s", formatTime(pos).c_str(), dur > 0.1 ? formatTime(dur).c_str() : "--:--");
 
-    // Center: Cover + Title + Artist (responsive width)
-    float winW = ImGui::GetWindowWidth();
-    float rightW = (winW < 980.0f) ? 310.0f : 385.0f;
+    // Right: Fixed-anchor layout from right edge so volume % width never shifts buttons
+    float rightZoneW = 360.0f;
+    float rightStartX = std::max(270.0f, winW - rightZoneW - 14.0f);
+
+    // Center: Cover + Title + Artist • Platform + Like (tightly sized so Heart sits right next to text)
     if (m_hasCurrentTrack && winW >= 720.0f) {
-        float centerX = std::max(230.0f, winW * 0.28f);
-        float metaW = std::max(80.0f, (winW - rightW) - centerX - 60.0f);
-        ImGui::SameLine(centerX);
-        ImTextureID barCov = m_coverTexture.isValid() ? m_coverTexture.imguiId() : m_defaultCoverTexture.imguiId();
-        ImGui::Image(barCov, ImVec2(42.0f, 42.0f));
-        ImGui::SameLine(0.0f, 10.0f);
-        ImGui::BeginChild("##BarMeta", ImVec2(metaW, 44.0f), false, ImGuiWindowFlags_NoScrollbar);
-        ImGui::TextUnformatted(m_currentTrack.title.c_str());
-        ImGui::TextDisabled("%s", m_currentTrack.artist.c_str());
-        ImGui::EndChild();
+        float leftEnd = 250.0f;
+        float availCenter = rightStartX - leftEnd - 20.0f;
+        if (availCenter > 150.0f) {
+            std::string sub = m_currentTrack.artist + " • " + platformName(m_currentTrack.platform);
+            float tW = ImGui::CalcTextSize(m_currentTrack.title.c_str()).x;
+            float sW = ImGui::CalcTextSize(sub.c_str()).x;
+            float maxTextW = std::max(80.0f, availCenter - 96.0f);
+            float textW = std::clamp(std::max(tW, sW) + 8.0f, 80.0f, maxTextW);
+            float totalBlockW = 46.0f + 12.0f + textW + 10.0f + 32.0f;
+            float startX = leftEnd + std::max(0.0f, (availCenter - totalBlockW) * 0.5f);
+
+            ImGui::SetCursorPos(ImVec2(startX, centerY - 23.0f));
+            ImTextureID barCov = m_coverTexture.isValid() ? m_coverTexture.imguiId() : m_defaultCoverTexture.imguiId();
+            ImGui::Image(barCov, ImVec2(46.0f, 46.0f));
+            ImGui::SameLine(0.0f, 12.0f);
+            ImGui::SetCursorPosY(centerY - 20.0f);
+            ImGui::BeginChild("##BarMeta", ImVec2(textW, 42.0f), false, ImGuiWindowFlags_NoScrollbar);
+            ImGui::TextUnformatted(m_currentTrack.title.c_str());
+            ImGui::TextDisabled("%s", sub.c_str());
+            ImGui::EndChild();
+            ImGui::SameLine(0.0f, 8.0f);
+            ImGui::SetCursorPosY(centerY - 16.0f);
+            if (m_icons.button("##bar_like", m_currentTrack.liked ? "heart_filled" : "heart", 22.0f,
+                               m_currentTrack.liked ? pal.accent : pal.textMuted)) {
+                m_currentTrack.liked = !m_currentTrack.liked;
+                m_library.toggleTrackLike(m_currentPlaylistId, m_currentTrack.id);
+                m_library.save();
+            }
+        }
     }
 
-    // Right: Volume % + Shuffle + Repeat (Off/1/All) + Fullscreen
-    ImGui::SameLine(std::max(260.0f, winW - rightW));
+    // Fixed right-aligned controls
+    float rx = rightStartX;
+    ImGui::SetCursorPos(ImVec2(rx, centerY - 7.0f));
+    float volPct = m_player.volume() * 100.0f;
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 2.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize, 12.0f);
+    ImGui::SetNextItemWidth(100.0f);
+    if (ImGui::SliderFloat("##Vol", &volPct, 0.0f, 150.0f, "")) {
+        m_player.setVolume(volPct / 100.0f);
+        m_library.setVolume(volPct / 100.0f);
+    }
+    if (ImGui::IsItemDeactivatedAfterEdit()) m_library.save();
+    ImGui::PopStyleVar(2);
+
+    rx += 108.0f;
+    ImGui::SetCursorPos(ImVec2(rx, centerY - 9.0f));
+    ImGui::TextDisabled("%3.0f%%", volPct);
+
+    rx += 46.0f;
+    ImGui::SetCursorPos(ImVec2(rx, centerY - 16.0f));
     bool muted = m_player.isMuted();
-    if (m_icons.button("##mute", muted ? "volume_mute" : "volume_high", 18.0f, pal.textPrimary)) {
+    if (m_icons.button("##mute", muted ? "volume_mute" : "volume_high", 24.0f, muted ? pal.accent : pal.textMuted)) {
         m_player.setMuted(!muted);
         auto st = m_library.settings();
         st.muted = !muted;
         m_library.updateSettings(st);
         m_library.save();
     }
-    ImGui::SameLine(0.0f, 4.0f);
-    if (ImGui::SmallButton("-")) {
-        float v = std::max(0.0f, m_player.volume() - 0.05f);
-        m_player.setVolume(v);
-        m_library.setVolume(v);
-        m_library.save();
-    }
-    ImGui::SameLine(0.0f, 4.0f);
-    float volPct = m_player.volume() * 100.0f;
-    ImGui::SetNextItemWidth(110.0f);
-    if (ImGui::SliderFloat("##Vol", &volPct, 0.0f, 150.0f, "%.0f%%")) {
-        m_player.setVolume(volPct / 100.0f);
-        m_library.setVolume(volPct / 100.0f);
-    }
-    if (ImGui::IsItemDeactivatedAfterEdit()) m_library.save();
-    ImGui::SameLine(0.0f, 4.0f);
-    if (ImGui::SmallButton("+")) {
-        float v = std::min(1.5f, m_player.volume() + 0.05f);
-        m_player.setVolume(v);
-        m_library.setVolume(v);
-        m_library.save();
-    }
-    ImGui::SameLine(0.0f, 12.0f);
-    if (m_icons.button("##shuffle", "shuffle", 18.0f, m_shuffle ? pal.accent : pal.textMuted)) {
-        m_shuffle = !m_shuffle;
-        auto st = m_library.settings();
-        st.shuffle = m_shuffle;
-        m_library.updateSettings(st);
-        m_library.save();
-    }
-    ImGui::SameLine(0.0f, 6.0f);
+
+    rx += 44.0f;
+    ImGui::SetCursorPos(ImVec2(rx, centerY - 16.0f));
     ImVec4 repCol = (m_repeatMode == 0) ? pal.textMuted : (m_repeatMode == 1 ? pal.accentSecondary : pal.accent);
-    if (m_icons.button("##repeat", "repeat", 18.0f, repCol)) {
+    if (m_icons.button("##repeat", "repeat", 24.0f, repCol)) {
         m_repeatMode = (m_repeatMode + 1) % 3;
         auto st = m_library.settings();
         st.repeatMode = m_repeatMode;
@@ -1731,12 +1871,29 @@ void AppUI::renderPlayerBar() {
         const char* repTip = (m_repeatMode == 0) ? "Repeat: Rien" : (m_repeatMode == 1 ? "Repeat: Même titre (1)" : "Repeat: Playlist / File (All)");
         ImGui::SetTooltip("%s", repTip);
     }
-    ImGui::SameLine(0.0f, 2.0f);
-    ImGui::TextColored(repCol, m_repeatMode == 0 ? "" : (m_repeatMode == 1 ? "1" : "All"));
-    ImGui::SameLine(0.0f, 6.0f);
-    if (m_icons.button("##bar_fs", m_fullscreenMode ? "fullscreen_exit" : "fullscreen", 18.0f, pal.textPrimary)) {
+    if (m_repeatMode > 0) {
+        ImGui::SetCursorPos(ImVec2(rx + 32.0f, centerY - 8.0f));
+        ImGui::TextColored(repCol, m_repeatMode == 1 ? "1" : "All");
+    }
+
+    rx += 56.0f;
+    ImGui::SetCursorPos(ImVec2(rx, centerY - 16.0f));
+    if (m_icons.button("##shuffle", "shuffle", 24.0f, m_shuffle ? pal.accent : pal.textMuted)) {
+        m_shuffle = !m_shuffle;
+        auto st = m_library.settings();
+        st.shuffle = m_shuffle;
+        m_library.updateSettings(st);
+        m_library.save();
+    }
+
+    rx += 44.0f;
+    ImGui::SetCursorPos(ImVec2(rx, centerY - 16.0f));
+    if (m_icons.button("##bar_fs", m_fullscreenMode ? "fullscreen_exit" : "fullscreen", 24.0f, pal.textPrimary)) {
         m_fullscreenMode = !m_fullscreenMode;
     }
+
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(3);
 }
 
 void AppUI::renderImportModal() {
