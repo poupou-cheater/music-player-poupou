@@ -235,6 +235,17 @@ void AppUI::applyAudioForTrack(const std::string& playlistId, const Track& track
 }
 
 void AppUI::playTrack(const std::string& playlistId, const Track& track) {
+    static std::string s_lastPlayKey;
+    static std::chrono::steady_clock::time_point s_lastPlayTime{};
+    std::string playKey = !track.id.empty() ? track.id : track.sourceUrl;
+    auto now = std::chrono::steady_clock::now();
+    if (!playKey.empty() && playKey == s_lastPlayKey &&
+        std::chrono::duration_cast<std::chrono::milliseconds>(now - s_lastPlayTime).count() < 1000) {
+        return;
+    }
+    s_lastPlayKey = playKey;
+    s_lastPlayTime = now;
+
     bool offline = m_library.offlineMode();
     if (!track.localMediaPath.empty() && fs::exists(track.localMediaPath)) {
         m_currentPlaylistId = playlistId;
