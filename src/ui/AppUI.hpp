@@ -156,6 +156,8 @@ private:
     bool m_showImportModal = false;
     char m_urlBuf[512]{};
     char m_plNameBuf[128]{};
+    char m_linkUrlBuf[512]{};
+    int m_linkTargetPlIdx = 0;
     bool m_newAutoSync = true;
     bool m_newAutoDownload = false;
     bool m_newPreferVideo = false;

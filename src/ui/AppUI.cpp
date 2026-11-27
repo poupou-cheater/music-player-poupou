@@ -5,6 +5,11 @@
 #include "vulkan/VulkanContext.hpp"
 
 #include <GLFW/glfw3.h>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <commdlg.h>
 #include <imgui.h>
 #include <algorithm>
 #include <cctype>
@@ -1951,35 +1956,55 @@ void AppUI::renderPlayerBar() {
     ImGui::PopStyleColor(3);
 }
 
+static std::string browseFileWin32(const wchar_t* filter) {
+    wchar_t fileBuf[MAX_PATH] = {0};
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.lpstrFilter = filter;
+    ofn.lpstrFile = fileBuf;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    if (GetOpenFileNameW(&ofn)) {
+        int len = WideCharToMultiByte(CP_UTF8, 0, fileBuf, -1, nullptr, 0, nullptr, nullptr);
+        if (len > 1) {
+            std::string out(static_cast<size_t>(len - 1), '\0');
+            WideCharToMultiByte(CP_UTF8, 0, fileBuf, -1, out.data(), len, nullptr, nullptr);
+            return out;
+        }
+    }
+    return "";
+}
+
 void AppUI::renderImportModal() {
     if (m_showImportModal) {
-        ImGui::OpenPopup("Import Playlist / Media");
+        ImGui::OpenPopup("###ImportPopup");
         m_showImportModal = false;
     }
 
-    if (ImGui::BeginPopupModal("Import Playlist / Media", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ImGui::BeginPopupModal("###ImportPopup", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
         if (ImGui::BeginTabBar("##ImportTabs")) {
-            if (ImGui::BeginTabItem("Platform URL (YT / YT Music / TikTok)")) {
-                ImGui::SetNextItemWidth(440.0f);
-                ImGui::InputTextWithHint("##UrlInput", "https://music.youtube.com/playlist?list=...", m_urlBuf, sizeof(m_urlBuf));
-                ImGui::SetNextItemWidth(440.0f);
-                ImGui::InputTextWithHint("##PlName", "Playlist name (optional)", m_plNameBuf, sizeof(m_plNameBuf));
+            if (ImGui::BeginTabItem("Playlist")) {
+                ImGui::SetNextItemWidth(380.0f);
+                ImGui::InputTextWithHint("##UrlInput", "URL de la playlist (YT / YT Music / TikTok)", m_urlBuf, sizeof(m_urlBuf));
+                ImGui::SetNextItemWidth(380.0f);
+                ImGui::InputTextWithHint("##PlName", "Nom (optionnel)", m_plNameBuf, sizeof(m_plNameBuf));
 
-                ImGui::Checkbox("Auto-Update Playlist", &m_newAutoSync);
+                ImGui::Checkbox("Auto-Sync", &m_newAutoSync);
                 ImGui::SameLine();
-                ImGui::Checkbox("Auto-Download New Tracks", &m_newAutoDownload);
+                ImGui::Checkbox("Auto-DL", &m_newAutoDownload);
                 ImGui::SameLine();
-                ImGui::Checkbox("Prefer Video (MP4)", &m_newPreferVideo);
+                ImGui::Checkbox("Video", &m_newPreferVideo);
 
-                if (ImGui::Button("Import & Sync")) {
+                if (ImGui::Button("Importer")) {
                     std::string url(m_urlBuf);
                     if (!url.empty()) {
                         Platform plat = LibraryManager::detectPlatform(url);
-                        std::string name = std::string(m_plNameBuf).empty() ? "New Playlist" : std::string(m_plNameBuf);
+                        std::string name = std::string(m_plNameBuf).empty() ? "Nouvelle Playlist" : std::string(m_plNameBuf);
                         std::string id = m_library.createPlaylist(name, plat, url, m_newAutoSync, m_newAutoDownload, m_newPreferVideo);
                         m_library.save();
                         m_selectedPlaylistId = id;
                         m_showOfflineOnlyView = false;
+                        m_showLikedOnlyView = false;
                         m_activeTab = MainTab::Playlists;
                         m_sync.syncPlaylistAsync(id);
                         m_urlBuf[0] = '\0';
@@ -1988,22 +2013,84 @@ void AppUI::renderImportModal() {
                     }
                 }
                 ImGui::SameLine();
-                if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+                if (ImGui::Button("Annuler")) ImGui::CloseCurrentPopup();
                 ImGui::EndTabItem();
             }
 
-            if (ImGui::BeginTabItem("Local Music (+ 1 Image) / Video")) {
-                ImGui::SetNextItemWidth(440.0f);
-                ImGui::InputTextWithHint("##LocalMedia", "Path to .mp3 / .m4a / .wav / .mp4", m_localMediaBuf, sizeof(m_localMediaBuf));
-                ImGui::SetNextItemWidth(440.0f);
-                ImGui::InputTextWithHint("##LocalCover", "Path to 1 cover image (.jpg / .png) - optional", m_localCoverBuf, sizeof(m_localCoverBuf));
-                ImGui::SetNextItemWidth(440.0f);
-                ImGui::InputTextWithHint("##LocalTitle", "Title", m_localTitleBuf, sizeof(m_localTitleBuf));
-                ImGui::SetNextItemWidth(440.0f);
-                ImGui::InputTextWithHint("##LocalArtist", "Artist", m_localArtistBuf, sizeof(m_localArtistBuf));
-                ImGui::Checkbox("This file is a Video", &m_localIsVideo);
+            if (ImGui::BeginTabItem("Link")) {
+                ImGui::SetNextItemWidth(380.0f);
+                ImGui::InputTextWithHint("##LinkUrl", "Lien direct (YouTube / YT Music / TikTok)", m_linkUrlBuf, sizeof(m_linkUrlBuf));
 
-                if (ImGui::Button("Add Local Track")) {
+                auto pls = m_library.playlistsCopy();
+                if (!pls.empty()) {
+                    if (m_linkTargetPlIdx >= static_cast<int>(pls.size())) m_linkTargetPlIdx = 0;
+                    ImGui::SetNextItemWidth(380.0f);
+                    if (ImGui::BeginCombo("##LinkPlCombo", pls[m_linkTargetPlIdx].name.c_str())) {
+                        for (int i = 0; i < static_cast<int>(pls.size()); ++i) {
+                            bool sel = (m_linkTargetPlIdx == i);
+                            if (ImGui::Selectable((pls[i].name + "##lkpl_" + std::to_string(i)).c_str(), sel)) {
+                                m_linkTargetPlIdx = i;
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                }
+
+                if (ImGui::Button("Ajouter##link_add")) {
+                    std::string url(m_linkUrlBuf);
+                    if (!url.empty()) {
+                        Platform plat = LibraryManager::detectPlatform(url);
+                        std::string targetPlId;
+                        if (!pls.empty() && m_linkTargetPlIdx >= 0 && m_linkTargetPlIdx < static_cast<int>(pls.size())) {
+                            targetPlId = pls[m_linkTargetPlIdx].id;
+                        } else {
+                            targetPlId = m_library.createPlaylist(platformName(plat), plat, "", false, false, plat == Platform::TikTok);
+                            m_library.save();
+                        }
+                        m_sync.searchPlatformAsync(plat, url, 1, [this, targetPlId](bool ok, const std::vector<Track>& res, const std::string&) {
+                            if (ok && !res.empty()) {
+                                m_library.addTrackToPlaylist(targetPlId, res.front());
+                                m_library.save();
+                            }
+                        });
+                        m_selectedPlaylistId = targetPlId;
+                        m_showOfflineOnlyView = false;
+                        m_showLikedOnlyView = false;
+                        m_activeTab = MainTab::Playlists;
+                        m_linkUrlBuf[0] = '\0';
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Annuler##link_cancel")) ImGui::CloseCurrentPopup();
+                ImGui::EndTabItem();
+            }
+
+            if (ImGui::BeginTabItem("Local")) {
+                ImGui::SetNextItemWidth(336.0f);
+                ImGui::InputTextWithHint("##LocalMedia", "Fichier (.mp3 / .m4a / .wav / .mp4)", m_localMediaBuf, sizeof(m_localMediaBuf));
+                ImGui::SameLine();
+                if (ImGui::Button("...##loc_m")) {
+                    std::string p = browseFileWin32(L"Media (*.mp3;*.m4a;*.wav;*.mp4;*.mkv;*.webm)\0*.mp3;*.m4a;*.wav;*.mp4;*.mkv;*.webm\0All Files (*.*)\0*.*\0");
+                    if (!p.empty()) std::snprintf(m_localMediaBuf, sizeof(m_localMediaBuf), "%s", p.c_str());
+                }
+
+                ImGui::SetNextItemWidth(336.0f);
+                ImGui::InputTextWithHint("##LocalCover", "Cover (.jpg / .png) - optionnel", m_localCoverBuf, sizeof(m_localCoverBuf));
+                ImGui::SameLine();
+                if (ImGui::Button("...##loc_c")) {
+                    std::string p = browseFileWin32(L"Images (*.jpg;*.jpeg;*.png;*.webp)\0*.jpg;*.jpeg;*.png;*.webp\0All Files (*.*)\0*.*\0");
+                    if (!p.empty()) std::snprintf(m_localCoverBuf, sizeof(m_localCoverBuf), "%s", p.c_str());
+                }
+
+                ImGui::SetNextItemWidth(186.0f);
+                ImGui::InputTextWithHint("##LocalTitle", "Titre", m_localTitleBuf, sizeof(m_localTitleBuf));
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(186.0f);
+                ImGui::InputTextWithHint("##LocalArtist", "Artiste", m_localArtistBuf, sizeof(m_localArtistBuf));
+                ImGui::Checkbox("Video##loc_vid", &m_localIsVideo);
+
+                if (ImGui::Button("Ajouter##loc_add")) {
                     std::string media(m_localMediaBuf);
                     if (!media.empty() && fs::exists(media)) {
                         std::string targetPl = m_selectedPlaylistId;
@@ -2013,6 +2100,7 @@ void AppUI::renderImportModal() {
                         m_library.save();
                         m_selectedPlaylistId = targetPl;
                         m_showOfflineOnlyView = false;
+                        m_showLikedOnlyView = false;
                         m_activeTab = MainTab::Playlists;
                         m_localMediaBuf[0] = '\0';
                         m_localCoverBuf[0] = '\0';
@@ -2022,7 +2110,7 @@ void AppUI::renderImportModal() {
                     }
                 }
                 ImGui::SameLine();
-                if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+                if (ImGui::Button("Annuler##loc_cancel")) ImGui::CloseCurrentPopup();
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();

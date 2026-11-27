@@ -173,4 +173,5 @@ void applyPaletteStyle(const TemplatePalette& p, VulkanContext& vk) {
     c[ImGuiCol_CheckMark] = p.accent;
     c[ImGuiCol_Text] = p.textPrimary;
     c[ImGuiCol_TextDisabled] = p.textMuted;
+    c[ImGuiCol_ModalWindowDimBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
 }
