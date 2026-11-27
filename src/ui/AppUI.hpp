@@ -58,6 +58,7 @@ private:
     void renderStagePanel(bool isFullscreen);
     void renderPlayerBar();
     void renderImportModal();
+    void renderAddToPlaylistModal();
     void renderRenameModal();
     void renderAudioOverrideModal();
     void applyAudioForTrack(const std::string& playlistId, const Track& track);
@@ -159,6 +160,11 @@ private:
     // UI inputs
     char m_searchBuf[128]{};
     bool m_showImportModal = false;
+    bool m_showAddToPlaylistModal = false;
+    Track m_addToPlTrack;
+    int m_addToPlIdx = 0;
+    char m_addToPlNewNameBuf[128]{};
+    int m_addToPlNewPlatIdx = 0;
     bool m_showCreatePlaylistModal = false;
     char m_newPlNameBuf[128]{};
     int m_newPlPlatIdx = 0;
@@ -193,5 +199,8 @@ private:
     char m_newThemeName[64]{ "Mon Thème" };
     CustomTheme m_newThemeDraft;
     bool m_previewCustomTheme = false;
+    char m_themeTextBuf[1024]{};
     char m_newAudioProfileName[64]{ "Mon Profil Audio" };
+    char m_audioTextBuf[1024]{};
+    std::string m_settingsIoNotice;
 };

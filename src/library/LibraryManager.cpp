@@ -274,6 +274,64 @@ static void from_json(const json& j, AppSettings& s) {
     s.keyVolDown = j.value("keyVolDown", 264);
 }
 
+bool LibraryManager::exportSettingsToFile(const std::string& path) const {
+    if (path.empty()) return false;
+    AppSettings s = settings();
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out.is_open()) return false;
+    json j = s;
+    out << j.dump(2);
+    return out.good();
+}
+
+bool LibraryManager::importSettingsFromFile(const std::string& path) {
+    if (path.empty() || !fs::exists(path)) return false;
+    try {
+        std::ifstream in(path, std::ios::binary);
+        if (!in.is_open()) return false;
+        json j;
+        in >> j;
+        if (!j.is_object()) return false;
+        AppSettings s = j.get<AppSettings>();
+        updateSettings(s);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+std::string LibraryManager::exportThemeText(const CustomTheme& t) {
+    json j = t;
+    return j.dump();
+}
+
+std::optional<CustomTheme> LibraryManager::importThemeText(const std::string& txt) {
+    if (txt.empty()) return std::nullopt;
+    try {
+        json j = json::parse(txt);
+        if (!j.is_object()) return std::nullopt;
+        return j.get<CustomTheme>();
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::string LibraryManager::exportAudioProfileText(const CustomAudioProfile& a) {
+    json j = a;
+    return j.dump();
+}
+
+std::optional<CustomAudioProfile> LibraryManager::importAudioProfileText(const std::string& txt) {
+    if (txt.empty()) return std::nullopt;
+    try {
+        json j = json::parse(txt);
+        if (!j.is_object()) return std::nullopt;
+        return j.get<CustomAudioProfile>();
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
 Platform LibraryManager::detectPlatform(const std::string& url) {
     std::string low = url;
     std::transform(low.begin(), low.end(), low.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -440,6 +498,30 @@ void LibraryManager::deletePlaylist(const std::string& playlistId) {
         if (it->id == playlistId) {
             m_deletedPlaylists.push_back(std::move(*it));
             m_playlists.erase(it);
+            break;
+        }
+    }
+}
+
+void LibraryManager::reorderPlaylist(const std::string& draggedId, const std::string& targetId) {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    if (draggedId == targetId) return;
+    auto fromIt = std::find_if(m_playlists.begin(), m_playlists.end(), [&](const Playlist& p) { return p.id == draggedId; });
+    auto toIt = std::find_if(m_playlists.begin(), m_playlists.end(), [&](const Playlist& p) { return p.id == targetId; });
+    if (fromIt == m_playlists.end() || toIt == m_playlists.end()) return;
+    size_t fromIdx = static_cast<size_t>(std::distance(m_playlists.begin(), fromIt));
+    size_t toIdx = static_cast<size_t>(std::distance(m_playlists.begin(), toIt));
+    Playlist item = std::move(m_playlists[fromIdx]);
+    m_playlists.erase(m_playlists.begin() + static_cast<std::ptrdiff_t>(fromIdx));
+    if (fromIdx < toIdx) --toIdx;
+    m_playlists.insert(m_playlists.begin() + static_cast<std::ptrdiff_t>(toIdx), std::move(item));
+}
+
+void LibraryManager::movePlaylistToPlatform(const std::string& playlistId, Platform plat) {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    for (auto& p : m_playlists) {
+        if (p.id == playlistId) {
+            p.platform = plat;
             break;
         }
     }

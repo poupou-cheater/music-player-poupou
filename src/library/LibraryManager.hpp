@@ -26,6 +26,8 @@ public:
     void clearPlaylistLocalFiles(const std::string& playlistId);
     void renamePlaylist(const std::string& playlistId, const std::string& newName);
     void togglePlaylistFavorite(const std::string& playlistId);
+    void reorderPlaylist(const std::string& draggedId, const std::string& targetId);
+    void movePlaylistToPlatform(const std::string& playlistId, Platform plat);
     void setPlaylistOptions(const std::string& playlistId, bool autoSync, bool autoDownload, bool preferVideo);
     void mergeSyncedPlaylist(const std::string& playlistId, const std::string& resolvedName,
                              const std::vector<Track>& fetchedTracks, const std::string& timestamp);
@@ -51,6 +53,13 @@ public:
 
     AppSettings settings() const;
     void updateSettings(const AppSettings& s);
+    bool exportSettingsToFile(const std::string& path) const;
+    bool importSettingsFromFile(const std::string& path);
+
+    static std::string exportThemeText(const CustomTheme& t);
+    static std::optional<CustomTheme> importThemeText(const std::string& txt);
+    static std::string exportAudioProfileText(const CustomAudioProfile& a);
+    static std::optional<CustomAudioProfile> importAudioProfileText(const std::string& txt);
 
     bool offlineMode() const;
     void setOfflineMode(bool offline);

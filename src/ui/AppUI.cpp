@@ -20,6 +20,9 @@
 
 namespace fs = std::filesystem;
 
+static std::string browseFileWin32(const wchar_t* filter);
+static std::string saveFileWin32(const wchar_t* filter, const wchar_t* defaultName);
+
 static std::string formatTime(double sec) {
     if (sec < 0.0) sec = 0.0;
     int total = static_cast<int>(sec);
@@ -667,6 +670,7 @@ void AppUI::render() {
     }
 
     renderImportModal();
+    renderAddToPlaylistModal();
     renderRenameModal();
     renderAudioOverrideModal();
     ImGui::End();
@@ -922,6 +926,16 @@ void AppUI::renderSidebar() {
                 m_renamePlaylistId = pl.id;
                 std::snprintf(m_renameTitleBuf, sizeof(m_renameTitleBuf), "%s", pl.name.c_str());
             }
+            if (ImGui::BeginMenu("Catégorie")) {
+                const Platform plats[] = { Platform::YouTubeMusic, Platform::YouTube, Platform::TikTok, Platform::Local };
+                for (Platform tp : plats) {
+                    if (ImGui::MenuItem(platformName(tp), nullptr, pl.platform == tp)) {
+                        m_library.movePlaylistToPlatform(pl.id, tp);
+                        m_library.save();
+                    }
+                }
+                ImGui::EndMenu();
+            }
             if (ImGui::MenuItem("Supprimer fichiers locaux")) {
                 m_library.clearPlaylistLocalFiles(pl.id);
                 m_library.save();
@@ -939,6 +953,23 @@ void AppUI::renderSidebar() {
         }
     };
 
+    auto attachPlaylistDnd = [&](const Playlist& pl, bool allowPlatformDrop) {
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+            ImGui::SetDragDropPayload("DND_PLAYLIST", pl.id.c_str(), pl.id.size() + 1);
+            ImGui::Text("%s", pl.name.c_str());
+            ImGui::EndDragDropSource();
+        }
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DND_PLAYLIST")) {
+                std::string draggedId(static_cast<const char*>(payload->Data));
+                if (allowPlatformDrop) m_library.movePlaylistToPlatform(draggedId, pl.platform);
+                m_library.reorderPlaylist(draggedId, pl.id);
+                m_library.save();
+            }
+            ImGui::EndDragDropTarget();
+        }
+    };
+
     std::vector<Playlist> favPlaylists;
     for (const auto& p : playlists) {
         if (p.favorite) favPlaylists.push_back(p);
@@ -946,6 +977,17 @@ void AppUI::renderSidebar() {
     if (!favPlaylists.empty()) {
         ImGui::Separator();
         ImGui::TextDisabled("PLAYLISTS FAVORITES");
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DND_PLAYLIST")) {
+                std::string draggedId(static_cast<const char*>(payload->Data));
+                auto pOpt = m_library.getPlaylist(draggedId);
+                if (pOpt && !pOpt->favorite) {
+                    m_library.togglePlaylistFavorite(draggedId);
+                    m_library.save();
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
         for (const auto& pl : favPlaylists) {
             bool selected = (!m_showOfflineOnlyView && !m_showLikedOnlyView && m_selectedPlaylistId == pl.id);
             m_icons.draw("heart_filled", 14.0f, pal.accent);
@@ -960,6 +1002,7 @@ void AppUI::renderSidebar() {
                 m_library.updateSettings(st);
                 m_library.save();
             }
+            attachPlaylistDnd(pl, false);
             drawPlaylistCtx(pl, ("##sb_fav_ctx_" + pl.id).c_str());
         }
     }
@@ -979,7 +1022,16 @@ void AppUI::renderSidebar() {
 
         m_icons.draw(platformIconKey(plat), 18.0f, pal.accent);
         ImGui::SameLine();
-        if (ImGui::TreeNodeEx(platformName(plat), ImGuiTreeNodeFlags_DefaultOpen)) {
+        bool nodeOpen = ImGui::TreeNodeEx(platformName(plat), ImGuiTreeNodeFlags_DefaultOpen);
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DND_PLAYLIST")) {
+                std::string draggedId(static_cast<const char*>(payload->Data));
+                m_library.movePlaylistToPlatform(draggedId, plat);
+                m_library.save();
+            }
+            ImGui::EndDragDropTarget();
+        }
+        if (nodeOpen) {
             for (const auto& pl : group) {
                 bool selected = (!m_showOfflineOnlyView && !m_showLikedOnlyView && m_selectedPlaylistId == pl.id);
                 m_icons.draw("playlist", 15.0f, selected ? pal.accent : pal.textMuted);
@@ -994,6 +1046,7 @@ void AppUI::renderSidebar() {
                     m_library.updateSettings(st);
                     m_library.save();
                 }
+                attachPlaylistDnd(pl, true);
                 drawPlaylistCtx(pl, ("##sb_ctx_" + pl.id).c_str());
             }
             ImGui::TreePop();
@@ -1146,6 +1199,16 @@ void AppUI::renderPlaylistsTab() {
             m_renameIsPlaylist = true;
             m_renamePlaylistId = pl.id;
             std::snprintf(m_renameTitleBuf, sizeof(m_renameTitleBuf), "%s", pl.name.c_str());
+        }
+        if (ImGui::BeginMenu("Catégorie##pl_hdr_cat")) {
+            const Platform plats[] = { Platform::YouTubeMusic, Platform::YouTube, Platform::TikTok, Platform::Local };
+            for (Platform tp : plats) {
+                if (ImGui::MenuItem(platformName(tp), nullptr, pl.platform == tp)) {
+                    m_library.movePlaylistToPlatform(pl.id, tp);
+                    m_library.save();
+                }
+            }
+            ImGui::EndMenu();
         }
         if (ImGui::MenuItem("Supprimer fichiers locaux")) {
             m_library.clearPlaylistLocalFiles(pl.id);
@@ -1428,9 +1491,11 @@ void AppUI::renderSearchTab(Platform plat) {
             if (ImGui::BeginPopupContextItem(("##sgctx_" + sid).c_str())) {
                 if (ImGui::MenuItem("Écouter maintenant")) playTrack("", t);
                 if (ImGui::MenuItem("Ajouter à la file d'attente (+ Queue)")) enqueueTrack("", t);
-                if (ImGui::MenuItem("Ajouter à la playlist sélectionnée")) {
-                    m_library.addTrackToPlaylist(m_selectedPlaylistId.empty() ? "ytm_favorites" : m_selectedPlaylistId, t);
-                    m_library.save();
+                if (ImGui::MenuItem("Ajouter à une playlist...")) {
+                    m_addToPlTrack = t;
+                    m_addToPlNewNameBuf[0] = '\0';
+                    m_addToPlNewPlatIdx = (t.platform == Platform::TikTok) ? 2 : 0;
+                    m_showAddToPlaylistModal = true;
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Télécharger Audio (M4A)")) m_sync.queueDirectDownload(t, m_selectedPlaylistId, false);
@@ -1467,9 +1532,11 @@ void AppUI::renderSearchTab(Platform plat) {
             if (ImGui::BeginPopupContextItem(("##sctx_" + sid).c_str())) {
                 if (ImGui::MenuItem("Écouter maintenant")) playTrack("", t);
                 if (ImGui::MenuItem("Ajouter à la file d'attente (+ Queue)")) enqueueTrack("", t);
-                if (ImGui::MenuItem("Ajouter à la playlist sélectionnée")) {
-                    m_library.addTrackToPlaylist(m_selectedPlaylistId.empty() ? "ytm_favorites" : m_selectedPlaylistId, t);
-                    m_library.save();
+                if (ImGui::MenuItem("Ajouter à une playlist...")) {
+                    m_addToPlTrack = t;
+                    m_addToPlNewNameBuf[0] = '\0';
+                    m_addToPlNewPlatIdx = (t.platform == Platform::TikTok) ? 2 : 0;
+                    m_showAddToPlaylistModal = true;
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Télécharger Audio (M4A)")) m_sync.queueDirectDownload(t, m_selectedPlaylistId, false);
@@ -1491,8 +1558,10 @@ void AppUI::renderSearchTab(Platform plat) {
             if (m_icons.button(("##squeue_" + sid).c_str(), "queue", 20.0f, pal.textPrimary)) enqueueTrack("", t);
             ImGui::SameLine(0.0f, 5.0f);
             if (m_icons.button(("##sadd_" + sid).c_str(), "add", 20.0f, pal.accentSecondary)) {
-                m_library.addTrackToPlaylist(m_selectedPlaylistId.empty() ? "ytm_favorites" : m_selectedPlaylistId, t);
-                m_library.save();
+                m_addToPlTrack = t;
+                m_addToPlNewNameBuf[0] = '\0';
+                m_addToPlNewPlatIdx = (t.platform == Platform::TikTok) ? 2 : 0;
+                m_showAddToPlaylistModal = true;
             }
             ImGui::SameLine(0.0f, 5.0f);
             if (m_icons.button(("##sdl_" + sid).c_str(), "download", 20.0f, pal.textMuted)) {
@@ -1772,6 +1841,42 @@ void AppUI::renderSettingsTab() {
                 ImGui::EndTable();
             }
 
+            ImGui::Spacing();
+            ImGui::TextColored(pal.accent, "Sauvegarde des paramètres (toute l'app)");
+            ImGui::Separator();
+            if (ImGui::Button("Exporter paramètres (.json)")) {
+                std::string p = saveFileWin32(L"JSON (*.json)\0*.json\0All Files (*.*)\0*.*\0", L"streampulse_settings.json");
+                if (!p.empty()) {
+                    m_settingsIoNotice = m_library.exportSettingsToFile(p)
+                        ? "Paramètres exportés !"
+                        : "Erreur lors de l'export.";
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Importer paramètres (.json)")) {
+                std::string p = browseFileWin32(L"JSON (*.json)\0*.json\0All Files (*.*)\0*.*\0");
+                if (!p.empty()) {
+                    if (m_library.importSettingsFromFile(p)) {
+                        s = m_library.settings();
+                        m_player.setVolume(s.volume);
+                        m_player.setMuted(s.muted);
+                        m_player.setEqGains(s.eqGainsDb);
+                        m_player.setAudioMixer(s.preampDb, s.balance, s.stereoWidth, s.monoMix, s.softLimiter);
+                        m_mediaKeys.setConfig(s.enableMediaKeys, s.mediaKeysExclusive, s.forceFocusOnMediaKey);
+                        m_discord.setEnabled(s.enableDiscordRPC, s.discordClientId);
+                        m_library.save();
+                        applyPaletteStyle(activePalette(), m_vk);
+                        m_settingsIoNotice = "Paramètres importés et appliqués !";
+                    } else {
+                        m_settingsIoNotice = "Fichier paramètres invalide.";
+                    }
+                }
+            }
+            if (!m_settingsIoNotice.empty()) {
+                ImGui::SameLine();
+                ImGui::TextColored(pal.accentSecondary, "%s", m_settingsIoNotice.c_str());
+            }
+
             ImGui::EndTabItem();
         }
 
@@ -1921,6 +2026,45 @@ void AppUI::renderSettingsTab() {
                 changed = true;
             }
 
+            ImGui::Spacing();
+            ImGui::Text("Exporter / Importer (texte)");
+            ImGui::Separator();
+            if (ImGui::Button("Exporter réglage actuel (copier texte)##exp_aud")) {
+                CustomAudioProfile cur;
+                cur.name = (s.activeCustomAudioIndex >= 0 && s.activeCustomAudioIndex < static_cast<int>(s.customAudioProfiles.size()))
+                    ? s.customAudioProfiles[s.activeCustomAudioIndex].name
+                    : std::string(m_newAudioProfileName[0] ? m_newAudioProfileName : "Profil Audio");
+                cur.eqGainsDb = s.eqGainsDb;
+                cur.preampDb = s.preampDb;
+                cur.balance = s.balance;
+                cur.stereoWidth = s.stereoWidth;
+                cur.monoMix = s.monoMix;
+                cur.softLimiter = s.softLimiter;
+                std::string txt = LibraryManager::exportAudioProfileText(cur);
+                std::snprintf(m_audioTextBuf, sizeof(m_audioTextBuf), "%s", txt.c_str());
+                ImGui::SetClipboardText(txt.c_str());
+            }
+            ImGui::SetNextItemWidth(340.0f);
+            ImGui::InputTextWithHint("##AudioTxtIO", "Coller le texte d'un profil audio...", m_audioTextBuf, sizeof(m_audioTextBuf));
+            ImGui::SameLine();
+            if (ImGui::Button("Importer (texte)##imp_aud")) {
+                if (auto apOpt = LibraryManager::importAudioProfileText(m_audioTextBuf)) {
+                    CustomAudioProfile ap = *apOpt;
+                    s.customAudioProfiles.push_back(ap);
+                    s.activeCustomAudioIndex = static_cast<int>(s.customAudioProfiles.size()) - 1;
+                    s.audioPreset = AudioPreset::Custom;
+                    s.eqGainsDb = ap.eqGainsDb;
+                    s.preampDb = ap.preampDb;
+                    s.balance = ap.balance;
+                    s.stereoWidth = ap.stereoWidth;
+                    s.monoMix = ap.monoMix;
+                    s.softLimiter = ap.softLimiter;
+                    m_player.setEqGains(s.eqGainsDb);
+                    m_player.setAudioMixer(s.preampDb, s.balance, s.stereoWidth, s.monoMix, s.softLimiter);
+                    changed = true;
+                }
+            }
+
             ImGui::EndTabItem();
         }
 
@@ -1999,6 +2143,33 @@ void AppUI::renderSettingsTab() {
                 if (ImGui::Button("Annuler aperçu")) {
                     m_previewCustomTheme = false;
                     applyPaletteStyle(activePalette(), m_vk);
+                }
+            }
+
+            ImGui::Spacing();
+            ImGui::Text("Exporter / Importer thème (texte)");
+            ImGui::Separator();
+            if (ImGui::Button("Exporter thème actuel (copier texte)##exp_thm")) {
+                CustomTheme cur = m_newThemeDraft;
+                if (!m_previewCustomTheme && s.activeCustomThemeIndex >= 0 &&
+                    s.activeCustomThemeIndex < static_cast<int>(s.customThemes.size())) {
+                    cur = s.customThemes[s.activeCustomThemeIndex];
+                } else {
+                    cur.name = m_newThemeName[0] ? std::string(m_newThemeName) : "Custom Theme";
+                }
+                std::string txt = LibraryManager::exportThemeText(cur);
+                std::snprintf(m_themeTextBuf, sizeof(m_themeTextBuf), "%s", txt.c_str());
+                ImGui::SetClipboardText(txt.c_str());
+            }
+            ImGui::SetNextItemWidth(340.0f);
+            ImGui::InputTextWithHint("##ThemeTxtIO", "Coller le texte d'un thème...", m_themeTextBuf, sizeof(m_themeTextBuf));
+            ImGui::SameLine();
+            if (ImGui::Button("Importer (texte)##imp_thm")) {
+                if (auto thOpt = LibraryManager::importThemeText(m_themeTextBuf)) {
+                    m_previewCustomTheme = false;
+                    s.customThemes.push_back(*thOpt);
+                    s.activeCustomThemeIndex = static_cast<int>(s.customThemes.size()) - 1;
+                    changed = true;
                 }
             }
             ImGui::EndTabItem();
@@ -2539,6 +2710,91 @@ static std::string browseFileWin32(const wchar_t* filter) {
         }
     }
     return "";
+}
+
+static std::string saveFileWin32(const wchar_t* filter, const wchar_t* defaultName) {
+    wchar_t fileBuf[MAX_PATH] = {0};
+    if (defaultName) {
+        wcsncpy_s(fileBuf, MAX_PATH, defaultName, _TRUNCATE);
+    }
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.lpstrFilter = filter;
+    ofn.lpstrFile = fileBuf;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrDefExt = L"json";
+    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    if (GetSaveFileNameW(&ofn)) {
+        int len = WideCharToMultiByte(CP_UTF8, 0, fileBuf, -1, nullptr, 0, nullptr, nullptr);
+        if (len > 1) {
+            std::string out(static_cast<size_t>(len - 1), '\0');
+            WideCharToMultiByte(CP_UTF8, 0, fileBuf, -1, out.data(), len, nullptr, nullptr);
+            return out;
+        }
+    }
+    return "";
+}
+
+void AppUI::renderAddToPlaylistModal() {
+    if (m_showAddToPlaylistModal) {
+        auto pls = m_library.playlistsCopy();
+        m_addToPlIdx = 0;
+        for (int i = 0; i < static_cast<int>(pls.size()); ++i) {
+            if (pls[i].id == m_selectedPlaylistId) { m_addToPlIdx = i; break; }
+        }
+        ImGui::OpenPopup("###AddToPlPopup");
+        m_showAddToPlaylistModal = false;
+    }
+
+    if (ImGui::BeginPopupModal("###AddToPlPopup", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
+        ImGui::Text("%s", m_addToPlTrack.title.c_str());
+        ImGui::TextDisabled("%s", m_addToPlTrack.artist.c_str());
+        ImGui::Separator();
+
+        auto pls = m_library.playlistsCopy();
+        if (!pls.empty()) {
+            if (m_addToPlIdx >= static_cast<int>(pls.size())) m_addToPlIdx = 0;
+            ImGui::Text("Playlist existante :");
+            ImGui::SetNextItemWidth(300.0f);
+            if (ImGui::BeginCombo("##AddToPlCombo", pls[m_addToPlIdx].name.c_str())) {
+                for (int i = 0; i < static_cast<int>(pls.size()); ++i) {
+                    bool sel = (m_addToPlIdx == i);
+                    if (ImGui::Selectable((pls[i].name + "##atp_" + std::to_string(i)).c_str(), sel)) {
+                        m_addToPlIdx = i;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (ImGui::Button("Ajouter à cette playlist")) {
+                m_library.addTrackToPlaylist(pls[m_addToPlIdx].id, m_addToPlTrack);
+                m_library.save();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+        }
+
+        ImGui::Text("Ou créer une nouvelle playlist :");
+        ImGui::SetNextItemWidth(300.0f);
+        ImGui::InputTextWithHint("##AddToPlNewName", "Nom de la nouvelle playlist", m_addToPlNewNameBuf, sizeof(m_addToPlNewNameBuf));
+        const char* platItems[] = { "YouTube Music", "YouTube", "TikTok", "Local" };
+        ImGui::SetNextItemWidth(300.0f);
+        ImGui::Combo("Plateforme##AddToPlPlat", &m_addToPlNewPlatIdx, platItems, 4);
+        if (ImGui::Button("Créer & Ajouter")) {
+            std::string name(m_addToPlNewNameBuf);
+            if (name.empty()) name = "Nouvelle playlist";
+            Platform plat = static_cast<Platform>(std::clamp(m_addToPlNewPlatIdx, 0, 3));
+            std::string newId = m_library.createPlaylist(name, plat, "", false, false, plat == Platform::TikTok);
+            m_library.addTrackToPlaylist(newId, m_addToPlTrack);
+            m_library.save();
+            m_selectedPlaylistId = newId;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Annuler##atp_cancel")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
 }
 
 void AppUI::renderImportModal() {

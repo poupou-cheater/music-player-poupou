@@ -45,7 +45,7 @@ int main() {
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     int startW = (initSettings.winW >= 640) ? initSettings.winW : 1400;
     int startH = (initSettings.winH >= 480) ? initSettings.winH : 860;
-    GLFWwindow* window = glfwCreateWindow(startW, startH, "StreamPulse - C++ Vulkan Media Player", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(startW, startH, "StreamPulse", nullptr, nullptr);
     if (!window) {
         glfwTerminate();
         return 1;
