@@ -72,7 +72,10 @@ void IconStore::draw(const std::string& name, float size, ImVec4 tint) const {
 bool IconStore::button(const char* strId, const std::string& iconName, float size, ImVec4 tint, ImVec4 bg) const {
     ImTextureID id = get(iconName);
     if (id) {
-        return ImGui::ImageButton(strId, id, ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), bg, tint);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+        bool clicked = ImGui::ImageButton(strId, id, ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), bg, tint);
+        ImGui::PopStyleVar();
+        return clicked;
     }
     return ImGui::Button(strId, ImVec2(size + 8, size + 8));
 }
