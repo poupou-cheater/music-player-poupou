@@ -119,8 +119,27 @@ TemplatePalette getTemplatePalette(GuiTemplate tpl) {
     }
 }
 
+TemplatePalette paletteFromCustom(const CustomTheme& ct) {
+    return {
+        ct.name.c_str(),
+        ImVec4(ct.bgMain[0], ct.bgMain[1], ct.bgMain[2], ct.bgMain[3]),
+        ImVec4(ct.bgSidebar[0], ct.bgSidebar[1], ct.bgSidebar[2], ct.bgSidebar[3]),
+        ImVec4(ct.bgCard[0], ct.bgCard[1], ct.bgCard[2], ct.bgCard[3]),
+        ImVec4(ct.accent[0], ct.accent[1], ct.accent[2], ct.accent[3]),
+        ImVec4(std::min(1.0f, ct.accent[0] + 0.12f), std::min(1.0f, ct.accent[1] + 0.12f), std::min(1.0f, ct.accent[2] + 0.12f), 1.0f),
+        ImVec4(ct.accentSecondary[0], ct.accentSecondary[1], ct.accentSecondary[2], ct.accentSecondary[3]),
+        ImVec4(ct.textPrimary[0], ct.textPrimary[1], ct.textPrimary[2], ct.textPrimary[3]),
+        ImVec4(ct.textPrimary[0] * 0.62f, ct.textPrimary[1] * 0.62f, ct.textPrimary[2] * 0.62f, 1.0f),
+        ct.rounding,
+        false
+    };
+}
+
 void applyTemplateStyle(GuiTemplate tpl, VulkanContext& vk) {
-    TemplatePalette p = getTemplatePalette(tpl);
+    applyPaletteStyle(getTemplatePalette(tpl), vk);
+}
+
+void applyPaletteStyle(const TemplatePalette& p, VulkanContext& vk) {
     vk.setClearColor(p.bgMain.x, p.bgMain.y, p.bgMain.z, 1.0f);
 
     ImGuiStyle& s = ImGui::GetStyle();

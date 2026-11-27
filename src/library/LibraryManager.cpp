@@ -113,10 +113,41 @@ static void from_json(const json& j, Playlist& p) {
     }
 }
 
+static void to_json(json& j, const CustomTheme& c) {
+    j = json{
+        {"name", c.name},
+        {"bgMain", c.bgMain},
+        {"bgSidebar", c.bgSidebar},
+        {"bgCard", c.bgCard},
+        {"accent", c.accent},
+        {"accentSecondary", c.accentSecondary},
+        {"textPrimary", c.textPrimary},
+        {"rounding", c.rounding}
+    };
+}
+
+static void from_json(const json& j, CustomTheme& c) {
+    c.name = j.value("name", "Custom Theme");
+    auto loadCol = [&](const char* k, std::array<float, 4>& dst) {
+        if (j.contains(k) && j[k].is_array() && j[k].size() == 4) {
+            for (size_t i = 0; i < 4; ++i) dst[i] = j[k][i].get<float>();
+        }
+    };
+    loadCol("bgMain", c.bgMain);
+    loadCol("bgSidebar", c.bgSidebar);
+    loadCol("bgCard", c.bgCard);
+    loadCol("accent", c.accent);
+    loadCol("accentSecondary", c.accentSecondary);
+    loadCol("textPrimary", c.textPrimary);
+    c.rounding = j.value("rounding", 10.0f);
+}
+
 static void to_json(json& j, const AppSettings& s) {
     j = json{
         {"offlineMode", s.offlineMode},
         {"activeTemplate", static_cast<int>(s.activeTemplate)},
+        {"activeCustomThemeIndex", s.activeCustomThemeIndex},
+        {"customThemes", s.customThemes},
         {"volume", s.volume},
         {"muted", s.muted},
         {"shuffle", s.shuffle},
@@ -153,6 +184,10 @@ static void to_json(json& j, const AppSettings& s) {
 static void from_json(const json& j, AppSettings& s) {
     s.offlineMode = j.value("offlineMode", false);
     s.activeTemplate = static_cast<GuiTemplate>(j.value("activeTemplate", 0));
+    s.activeCustomThemeIndex = j.value("activeCustomThemeIndex", -1);
+    if (j.contains("customThemes") && j["customThemes"].is_array()) {
+        s.customThemes = j.at("customThemes").get<std::vector<CustomTheme>>();
+    }
     s.volume = j.value("volume", 0.85f);
     s.muted = j.value("muted", false);
     s.shuffle = j.value("shuffle", false);

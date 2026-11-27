@@ -148,9 +148,22 @@ struct Playlist {
     AudioOverride audioOverride;
 };
 
+struct CustomTheme {
+    std::string name = "My Theme";
+    std::array<float, 4> bgMain = { 0.06f, 0.06f, 0.08f, 1.0f };
+    std::array<float, 4> bgSidebar = { 0.04f, 0.04f, 0.05f, 1.0f };
+    std::array<float, 4> bgCard = { 0.12f, 0.12f, 0.15f, 1.0f };
+    std::array<float, 4> accent = { 1.00f, 0.15f, 0.25f, 1.0f };
+    std::array<float, 4> accentSecondary = { 0.20f, 0.75f, 1.00f, 1.0f };
+    std::array<float, 4> textPrimary = { 0.96f, 0.96f, 0.98f, 1.0f };
+    float rounding = 10.0f;
+};
+
 struct AppSettings {
     bool offlineMode = false;
     GuiTemplate activeTemplate = GuiTemplate::YouTubeMusic;
+    int activeCustomThemeIndex = -1;
+    std::vector<CustomTheme> customThemes;
     float volume = 0.85f; // 0.0 .. 1.5 (0% .. 150%)
     bool muted = false;
     bool shuffle = false;

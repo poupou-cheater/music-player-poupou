@@ -20,4 +20,6 @@ struct TemplatePalette {
 };
 
 TemplatePalette getTemplatePalette(GuiTemplate tpl);
+TemplatePalette paletteFromCustom(const CustomTheme& ct);
 void applyTemplateStyle(GuiTemplate tpl, VulkanContext& vk);
+void applyPaletteStyle(const TemplatePalette& p, VulkanContext& vk);

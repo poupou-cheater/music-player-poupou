@@ -502,8 +502,8 @@ void PlatformSync::fastWorkerLoop() {
                 }
             }
 
-            bool isTikTok = (task.platform == Platform::TikTok || task.url.find("tiktok.com") != std::string::npos);
-            bool isTikTokPhoto = (task.url.find("/photo/") != std::string::npos);
+            bool isTikTok = (task.url.find("tiktok.com") != std::string::npos);
+            bool isTikTokPhoto = (isTikTok && task.url.find("/photo/") != std::string::npos);
 
             if (isTikTok) {
                 std::string safeId = LibraryManager::sanitizeId(task.trackId.empty() ? "tt" : task.trackId);
@@ -523,6 +523,10 @@ void PlatformSync::fastWorkerLoop() {
                     } else {
                         runYtDlp(ff + "--force-overwrites --no-part --no-warnings -f \"best[ext=mp4]/best\" -o \"" +
                                  outTmpl + "\" \"" + task.url + "\"", code);
+                        if (code != 0) {
+                            runYtDlp(ff + "--force-overwrites --no-part --no-warnings -f \"best\" -o \"" +
+                                     outTmpl + "\" \"" + task.url + "\"", code);
+                        }
                     }
                     for (const char* ext : { "mp4", "m4a", "mp3", "webm" }) {
                         std::string cand = "cache/stream/" + safeId + "." + ext;

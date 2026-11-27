@@ -8,6 +8,7 @@
 #include "media/MediaPlayer.hpp"
 #include "ui/IconStore.hpp"
 #include "ui/MediaKeys.hpp"
+#include "ui/Templates.hpp"
 #include "vulkan/VulkanTexture.hpp"
 
 #include <chrono>
@@ -62,6 +63,7 @@ private:
     void renderRenameModal();
     void renderAudioOverrideModal();
     void applyAudioForTrack(const std::string& playlistId, const Track& track);
+    TemplatePalette activePalette() const;
 
     void handleShortcuts();
     void playTrack(const std::string& playlistId, const Track& track);
@@ -176,4 +178,7 @@ private:
     std::string m_audioModalTrackId;
     std::string m_audioModalLabel;
     AudioOverride m_audioModalData;
+
+    char m_newThemeName[64]{ "Mon Thème" };
+    CustomTheme m_newThemeDraft;
 };

@@ -53,10 +53,18 @@ AppUI::AppUI(VulkanContext& vk, IconStore& icons, LibraryManager& library, Platf
 
 AppUI::~AppUI() = default;
 
+TemplatePalette AppUI::activePalette() const {
+    auto s = m_library.settings();
+    if (s.activeCustomThemeIndex >= 0 && s.activeCustomThemeIndex < static_cast<int>(s.customThemes.size())) {
+        return paletteFromCustom(s.customThemes[s.activeCustomThemeIndex]);
+    }
+    return getTemplatePalette(s.activeTemplate);
+}
+
 void AppUI::init(GLFWwindow* window) {
     m_window = window;
     auto s = m_library.settings();
-    applyTemplateStyle(s.activeTemplate, m_vk);
+    applyPaletteStyle(activePalette(), m_vk);
     m_player.setVolume(s.volume);
     m_player.setMuted(s.muted);
     m_player.setEqGains(s.eqGainsDb);
@@ -626,16 +634,31 @@ void AppUI::renderTopBar() {
         ImGui::SameLine(rightX);
     }
     ImGui::SetNextItemWidth(compactBar ? 95.0f : 120.0f);
-    const char* tplNames[] = {
+    auto stTop = m_library.settings();
+    std::vector<std::string> themeLabels = {
         "YT Music", "Spotify", "TikTok", "Minimal",
         "CH: Neon", "CH: Mint", "CH: Sunset", "CH: Emerald"
     };
-    int curTpl = static_cast<int>(m_library.activeTemplate());
-    if (ImGui::Combo("##TemplateCombo", &curTpl, tplNames, 8)) {
-        auto nextTpl = static_cast<GuiTemplate>(curTpl);
-        m_library.setActiveTemplate(nextTpl);
-        m_library.save();
-        applyTemplateStyle(nextTpl, m_vk);
+    for (const auto& ct : stTop.customThemes) themeLabels.push_back(ct.name);
+    int curTpl = (stTop.activeCustomThemeIndex >= 0 && stTop.activeCustomThemeIndex < static_cast<int>(stTop.customThemes.size()))
+        ? (8 + stTop.activeCustomThemeIndex)
+        : static_cast<int>(stTop.activeTemplate);
+    if (ImGui::BeginCombo("##TemplateCombo", themeLabels[curTpl].c_str())) {
+        for (int ti = 0; ti < static_cast<int>(themeLabels.size()); ++ti) {
+            bool sel = (curTpl == ti);
+            if (ImGui::Selectable((themeLabels[ti] + "##tpl_" + std::to_string(ti)).c_str(), sel)) {
+                if (ti < 8) {
+                    stTop.activeCustomThemeIndex = -1;
+                    stTop.activeTemplate = static_cast<GuiTemplate>(ti);
+                } else {
+                    stTop.activeCustomThemeIndex = ti - 8;
+                }
+                m_library.updateSettings(stTop);
+                m_library.save();
+                applyPaletteStyle(activePalette(), m_vk);
+            }
+        }
+        ImGui::EndCombo();
     }
     ImGui::SameLine(0.0f, 6.0f);
     if (ImGui::Button(compactBar ? "+" : "+ Importer")) m_showImportModal = true;
@@ -1264,88 +1287,157 @@ void AppUI::renderStatsTab() {
 }
 
 void AppUI::renderSettingsTab() {
-    TemplatePalette pal = getTemplatePalette(m_library.activeTemplate());
+    TemplatePalette pal = activePalette();
     AppSettings s = m_library.settings();
     bool changed = false;
 
-    m_icons.draw("equalizer", 20.0f, pal.accent);
-    ImGui::SameLine();
-    ImGui::Text("Audio Mixer & Equalizer Presets");
-    ImGui::Separator();
+    if (ImGui::BeginTabBar("##SettingsSubTabs")) {
+        if (ImGui::BeginTabItem("Général")) {
+            m_icons.draw("equalizer", 20.0f, pal.accent);
+            ImGui::SameLine();
+            ImGui::Text("Audio Mixer & Equalizer Presets");
+            ImGui::Separator();
 
-    const char* presetNames[] = { "Flat", "YouTube Music", "Spotify", "TikTok", "Custom" };
-    int pIdx = static_cast<int>(s.audioPreset);
-    if (ImGui::Combo("Audio Preset", &pIdx, presetNames, 5)) {
-        s.audioPreset = static_cast<AudioPreset>(pIdx);
-        if (s.audioPreset != AudioPreset::Custom) {
-            s.eqGainsDb = presetEqGains(s.audioPreset);
+            const char* presetNames[] = { "Flat", "YouTube Music", "Spotify", "TikTok", "Custom" };
+            int pIdx = static_cast<int>(s.audioPreset);
+            if (ImGui::Combo("Audio Preset", &pIdx, presetNames, 5)) {
+                s.audioPreset = static_cast<AudioPreset>(pIdx);
+                if (s.audioPreset != AudioPreset::Custom) {
+                    s.eqGainsDb = presetEqGains(s.audioPreset);
+                }
+                m_player.setEqGains(s.eqGainsDb);
+                changed = true;
+            }
+
+            const char* bandLabels[5] = { "60 Hz (Sub)", "230 Hz (Bass)", "910 Hz (Mid)", "3.6 kHz (Presence)", "14 kHz (Treble)" };
+            for (int i = 0; i < 5; ++i) {
+                if (ImGui::SliderFloat(bandLabels[i], &s.eqGainsDb[i], -12.0f, 12.0f, "%.1f dB")) {
+                    s.audioPreset = AudioPreset::Custom;
+                    m_player.setEqGains(s.eqGainsDb);
+                    changed = true;
+                }
+            }
+
+            ImGui::Spacing();
+            m_icons.draw("settings", 20.0f, pal.accent);
+            ImGui::SameLine();
+            ImGui::Text("Behavior, Discord & Keybinds");
+            ImGui::Separator();
+
+            if (ImGui::Checkbox("Auto-hide top & bottom bars after 3s in Fullscreen", &s.autoHideBarsFullscreen)) changed = true;
+            if (ImGui::Checkbox("Enable Global Media Keys (Play/Pause, Next, Prev)", &s.enableMediaKeys)) {
+                m_mediaKeys.setConfig(s.enableMediaKeys, s.mediaKeysExclusive, s.forceFocusOnMediaKey);
+                changed = true;
+            }
+            if (ImGui::Checkbox("Exclusive Media Keys (Only control StreamPulse)", &s.mediaKeysExclusive)) {
+                m_mediaKeys.setConfig(s.enableMediaKeys, s.mediaKeysExclusive, s.forceFocusOnMediaKey);
+                changed = true;
+            }
+            if (ImGui::Checkbox("Force Focus app response in background", &s.forceFocusOnMediaKey)) {
+                m_mediaKeys.setConfig(s.enableMediaKeys, s.mediaKeysExclusive, s.forceFocusOnMediaKey);
+                changed = true;
+            }
+            if (ImGui::Button("Nettoyer cache orphelin")) {
+                m_sync.cleanupOrphanCacheAsync();
+            }
+            if (ImGui::Checkbox("Enable Discord Rich Presence", &s.enableDiscordRPC)) {
+                m_discord.setEnabled(s.enableDiscordRPC, s.discordClientId);
+                changed = true;
+            }
+
+            ImGui::Spacing();
+            ImGui::Text("Keybinds (click a button then press any key):");
+            auto keybindRow = [&](const char* label, int slot, int keyCode) {
+                ImGui::Text("%-18s", label);
+                ImGui::SameLine(180.0f);
+                std::string btnTxt = (m_rebindingSlot == slot) ? "Press a key..." : MediaKeys::keyName(keyCode);
+                if (ImGui::Button((btnTxt + "##kb_" + std::to_string(slot)).c_str(), ImVec2(140.0f, 0.0f))) {
+                    m_rebindingSlot = slot;
+                }
+            };
+            keybindRow("Play / Pause", 0, s.keyPlayPause);
+            keybindRow("Mute", 1, s.keyMute);
+            keybindRow("Fullscreen", 2, s.keyFullscreen);
+            keybindRow("Lyrics Mode", 3, s.keyLyrics);
+            keybindRow("Seek -5s", 4, s.keySeekBack);
+            keybindRow("Seek +5s", 5, s.keySeekFwd);
+            keybindRow("Volume +5%", 6, s.keyVolUp);
+            keybindRow("Volume -5%", 7, s.keyVolDown);
+
+            ImGui::EndTabItem();
         }
-        m_player.setEqGains(s.eqGainsDb);
-        changed = true;
-    }
 
-    const char* bandLabels[5] = { "60 Hz (Sub)", "230 Hz (Bass)", "910 Hz (Mid)", "3.6 kHz (Presence)", "14 kHz (Treble)" };
-    for (int i = 0; i < 5; ++i) {
-        if (ImGui::SliderFloat(bandLabels[i], &s.eqGainsDb[i], -12.0f, 12.0f, "%.1f dB")) {
-            s.audioPreset = AudioPreset::Custom;
-            m_player.setEqGains(s.eqGainsDb);
-            changed = true;
+        if (ImGui::BeginTabItem("Thèmes")) {
+            ImGui::Text("Thèmes intégrés (YouTube Music, Spotify, TikTok, ColorHunt)");
+            ImGui::Separator();
+            const char* builtInNames[] = {
+                "YouTube Music", "Spotify", "TikTok", "Minimal",
+                "ColorHunt: Neon Night", "ColorHunt: Cyber Mint", "ColorHunt: Sunset Synth", "ColorHunt: Emerald Dark"
+            };
+            for (int i = 0; i < 8; ++i) {
+                if (i % 4 != 0) ImGui::SameLine();
+                bool active = (s.activeCustomThemeIndex < 0 && static_cast<int>(s.activeTemplate) == i);
+                if (active) ImGui::PushStyleColor(ImGuiCol_Button, pal.accent);
+                if (ImGui::Button(builtInNames[i])) {
+                    s.activeCustomThemeIndex = -1;
+                    s.activeTemplate = static_cast<GuiTemplate>(i);
+                    changed = true;
+                }
+                if (active) ImGui::PopStyleColor();
+            }
+
+            ImGui::Spacing();
+            ImGui::Text("Mes Thèmes personnalisés (%zu)", s.customThemes.size());
+            ImGui::Separator();
+            for (int i = 0; i < static_cast<int>(s.customThemes.size()); ++i) {
+                ImGui::PushID(i);
+                bool active = (s.activeCustomThemeIndex == i);
+                if (active) ImGui::PushStyleColor(ImGuiCol_Button, pal.accent);
+                if (ImGui::Button(s.customThemes[i].name.c_str())) {
+                    s.activeCustomThemeIndex = i;
+                    changed = true;
+                }
+                if (active) ImGui::PopStyleColor();
+                ImGui::SameLine();
+                if (ImGui::Button("Supprimer")) {
+                    s.customThemes.erase(s.customThemes.begin() + i);
+                    if (s.activeCustomThemeIndex == i) s.activeCustomThemeIndex = -1;
+                    else if (s.activeCustomThemeIndex > i) --s.activeCustomThemeIndex;
+                    changed = true;
+                    ImGui::PopID();
+                    break;
+                }
+                ImGui::PopID();
+            }
+
+            ImGui::Spacing();
+            ImGui::Text("Créer un nouveau thème");
+            ImGui::Separator();
+            ImGui::SetNextItemWidth(260.0f);
+            ImGui::InputText("Nom du thème", m_newThemeName, sizeof(m_newThemeName));
+            ImGui::ColorEdit4("Fond principal", m_newThemeDraft.bgMain.data());
+            ImGui::ColorEdit4("Barre latérale", m_newThemeDraft.bgSidebar.data());
+            ImGui::ColorEdit4("Cartes / Boutons", m_newThemeDraft.bgCard.data());
+            ImGui::ColorEdit4("Couleur Accent", m_newThemeDraft.accent.data());
+            ImGui::ColorEdit4("Accent secondaire", m_newThemeDraft.accentSecondary.data());
+            ImGui::ColorEdit4("Texte principal", m_newThemeDraft.textPrimary.data());
+            ImGui::SliderFloat("Arrondi (px)", &m_newThemeDraft.rounding, 0.0f, 20.0f, "%.0f px");
+            if (ImGui::Button("Créer & Appliquer le thème")) {
+                CustomTheme ct = m_newThemeDraft;
+                ct.name = m_newThemeName[0] ? std::string(m_newThemeName) : "Custom Theme";
+                s.customThemes.push_back(std::move(ct));
+                s.activeCustomThemeIndex = static_cast<int>(s.customThemes.size()) - 1;
+                changed = true;
+            }
+            ImGui::EndTabItem();
         }
+        ImGui::EndTabBar();
     }
-
-    ImGui::Spacing();
-    m_icons.draw("settings", 20.0f, pal.accent);
-    ImGui::SameLine();
-    ImGui::Text("Behavior, Discord & Keybinds");
-    ImGui::Separator();
-
-    if (ImGui::Checkbox("Auto-hide top & bottom bars after 3s in Fullscreen", &s.autoHideBarsFullscreen)) changed = true;
-    if (ImGui::Checkbox("Enable Global Media Keys (Play/Pause, Next, Prev)", &s.enableMediaKeys)) {
-        m_mediaKeys.setConfig(s.enableMediaKeys, s.mediaKeysExclusive, s.forceFocusOnMediaKey);
-        changed = true;
-    }
-    if (ImGui::Checkbox("Exclusive Media Keys (Only control StreamPulse)", &s.mediaKeysExclusive)) {
-        m_mediaKeys.setConfig(s.enableMediaKeys, s.mediaKeysExclusive, s.forceFocusOnMediaKey);
-        changed = true;
-    }
-    if (ImGui::Checkbox("Force Focus app when Media Key pressed", &s.forceFocusOnMediaKey)) {
-        m_mediaKeys.setConfig(s.enableMediaKeys, s.mediaKeysExclusive, s.forceFocusOnMediaKey);
-        changed = true;
-    }
-    if (ImGui::Button("Force Focus Now")) {
-        m_mediaKeys.focusAppWindow();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Nettoyer cache orphelin")) {
-        m_sync.cleanupOrphanCacheAsync();
-    }
-    if (ImGui::Checkbox("Enable Discord Rich Presence", &s.enableDiscordRPC)) {
-        m_discord.setEnabled(s.enableDiscordRPC, s.discordClientId);
-        changed = true;
-    }
-
-    ImGui::Spacing();
-    ImGui::Text("Keybinds (click a button then press any key):");
-    auto keybindRow = [&](const char* label, int slot, int keyCode) {
-        ImGui::Text("%-18s", label);
-        ImGui::SameLine(180.0f);
-        std::string btnTxt = (m_rebindingSlot == slot) ? "Press a key..." : MediaKeys::keyName(keyCode);
-        if (ImGui::Button((btnTxt + "##kb_" + std::to_string(slot)).c_str(), ImVec2(140.0f, 0.0f))) {
-            m_rebindingSlot = slot;
-        }
-    };
-    keybindRow("Play / Pause", 0, s.keyPlayPause);
-    keybindRow("Mute", 1, s.keyMute);
-    keybindRow("Fullscreen", 2, s.keyFullscreen);
-    keybindRow("Lyrics Mode", 3, s.keyLyrics);
-    keybindRow("Seek -5s", 4, s.keySeekBack);
-    keybindRow("Seek +5s", 5, s.keySeekFwd);
-    keybindRow("Volume +5%", 6, s.keyVolUp);
-    keybindRow("Volume -5%", 7, s.keyVolDown);
 
     if (changed) {
         m_library.updateSettings(s);
         m_library.save();
+        applyPaletteStyle(activePalette(), m_vk);
     }
 }
 
