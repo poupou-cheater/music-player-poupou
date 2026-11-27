@@ -34,6 +34,8 @@
    - Inclure `<windows.h>` et `<commdlg.h>` (avec `NOMINMAX`) après `<GLFW/glfw3.h>` pour `OPENFILENAMEW` / `GetOpenFileNameW`.
 6. **Vérification après modification** :
    - Fermer `StreamPulse.exe` avant de recompiler (`Stop-Process -Name "StreamPulse" -Force -ErrorAction SilentlyContinue`), compiler en `Release` avec CMake VS 2022, puis vérifier que `build\Release\StreamPulse.exe` reste actif 4 secondes (`AliveAfter4s=True`).
+7. **Règle d'animation globale (Slide In / Slide Out)** :
+   - Tout élément UI qui apparaît ou disparaît (panneau latéral droit `##StagePanel`, Mode Focus `##FullscreenStage`, `##TopBar`, `##PlayerBar`, ou tout futur panneau/tiroir) doit utiliser une animation fluide `slide in` / `slide out` avec lissage cubique (`1 - (1 - t)^3`), jamais d'apparition ou disparition instantanée.
 
 ---
 

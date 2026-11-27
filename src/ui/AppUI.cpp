@@ -518,14 +518,37 @@ void AppUI::render() {
     ImGui::PopStyleVar();
 
     auto settings = m_library.settings();
-    bool hideBars = m_fullscreenMode && settings.autoHideBarsFullscreen && (m_idleSeconds >= 3.0);
+    bool idleHide = m_fullscreenMode && settings.autoHideBarsFullscreen && (m_idleSeconds >= 3.0);
+    bool hideTopBar = idleHide && settings.autoHideTopBar;
+    bool hideBottomBar = idleHide && settings.autoHideBottomBar;
 
-    if (!hideBars) {
+    float barStep = ImGui::GetIO().DeltaTime * 5.0f;
+    auto stepAnim = [&](float& val, bool hidden) {
+        float tgt = hidden ? 0.0f : 1.0f;
+        if (val < tgt) val = std::min(1.0f, val + barStep);
+        else if (val > tgt) val = std::max(0.0f, val - barStep);
+        return 1.0f - std::pow(1.0f - val, 3.0f);
+    };
+    float easedTop = stepAnim(m_topBarAnim, hideTopBar);
+    float easedBottom = stepAnim(m_bottomBarAnim, hideBottomBar);
+
+    if (easedTop > 0.02f) {
+        float topH = 46.0f * easedTop;
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.04f, 0.04f, 0.05f, 1.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 9.0f));
+        ImGui::BeginChild("##TopBarWrap", ImVec2(0.0f, topH), false,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::SetCursorPosY(topH - 46.0f);
         renderTopBar();
+        ImGui::EndChild();
+        ImGui::PopStyleVar(3);
+        ImGui::PopStyleColor();
     }
 
-    float playerBarHeight = hideBars ? 0.0f : 76.0f;
-    float bodyHeight = ImGui::GetContentRegionAvail().y - (hideBars ? 0.0f : (playerBarHeight + 4.0f));
+    float playerBarHeight = 76.0f * easedBottom;
+    float bodyHeight = ImGui::GetContentRegionAvail().y - (easedBottom > 0.02f ? (playerBarHeight + 4.0f) : 0.0f);
     if (bodyHeight < 180.0f) bodyHeight = 180.0f;
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 6.0f));
@@ -610,7 +633,7 @@ void AppUI::render() {
     }
     ImGui::EndChild(); // ##MiddleBody
 
-    if (!hideBars) {
+    if (easedBottom > 0.02f) {
         TemplatePalette barPal = activePalette();
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(barPal.bgSidebar.x + 0.04f, barPal.bgSidebar.y + 0.04f, barPal.bgSidebar.z + 0.06f, 1.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 0.0f));
@@ -662,10 +685,6 @@ void AppUI::toggleOsFullscreen() {
 
 void AppUI::renderTopBar() {
     TemplatePalette pal = getTemplatePalette(m_library.activeTemplate());
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.04f, 0.04f, 0.05f, 1.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 9.0f));
     ImGui::BeginChild("##TopBar", ImVec2(0.0f, 46.0f), false,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
@@ -794,8 +813,6 @@ void AppUI::renderTopBar() {
     ImGui::PopStyleVar(2);
 
     ImGui::EndChild();
-    ImGui::PopStyleVar(3);
-    ImGui::PopStyleColor();
 }
 
 void AppUI::renderSidebar() {
@@ -1579,7 +1596,14 @@ void AppUI::renderSettingsTab() {
             ImGui::Text("Behavior, Discord & Keybinds");
             ImGui::Separator();
 
-            if (ImGui::Checkbox("Auto-hide top & bottom bars after 3s in Fullscreen", &s.autoHideBarsFullscreen)) changed = true;
+            if (ImGui::Checkbox("Auto-hide bars after 3s in Focus Mode", &s.autoHideBarsFullscreen)) changed = true;
+            if (s.autoHideBarsFullscreen) {
+                ImGui::Indent(22.0f);
+                if (ImGui::Checkbox("Top bar##ah_top", &s.autoHideTopBar)) changed = true;
+                ImGui::SameLine();
+                if (ImGui::Checkbox("Bottom bar##ah_bot", &s.autoHideBottomBar)) changed = true;
+                ImGui::Unindent(22.0f);
+            }
             if (ImGui::Checkbox("Enable Global Media Keys (Play/Pause, Next, Prev)", &s.enableMediaKeys)) {
                 m_mediaKeys.setConfig(s.enableMediaKeys, s.mediaKeysExclusive, s.forceFocusOnMediaKey);
                 changed = true;
@@ -1591,9 +1615,6 @@ void AppUI::renderSettingsTab() {
             if (ImGui::Checkbox("Force Focus app response in background", &s.forceFocusOnMediaKey)) {
                 m_mediaKeys.setConfig(s.enableMediaKeys, s.mediaKeysExclusive, s.forceFocusOnMediaKey);
                 changed = true;
-            }
-            if (ImGui::Button("Nettoyer cache orphelin")) {
-                m_sync.cleanupOrphanCacheAsync();
             }
             if (ImGui::Checkbox("Enable Discord Rich Presence", &s.enableDiscordRPC)) {
                 m_discord.setEnabled(s.enableDiscordRPC, s.discordClientId);

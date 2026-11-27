@@ -199,6 +199,8 @@ static void to_json(json& j, const AppSettings& s) {
         {"monoMix", s.monoMix},
         {"softLimiter", s.softLimiter},
         {"autoHideBarsFullscreen", s.autoHideBarsFullscreen},
+        {"autoHideTopBar", s.autoHideTopBar},
+        {"autoHideBottomBar", s.autoHideBottomBar},
         {"enableMediaKeys", s.enableMediaKeys},
         {"mediaKeysExclusive", s.mediaKeysExclusive},
         {"forceFocusOnMediaKey", s.forceFocusOnMediaKey},
@@ -251,6 +253,8 @@ static void from_json(const json& j, AppSettings& s) {
     s.monoMix = j.value("monoMix", false);
     s.softLimiter = j.value("softLimiter", true);
     s.autoHideBarsFullscreen = j.value("autoHideBarsFullscreen", true);
+    s.autoHideTopBar = j.value("autoHideTopBar", true);
+    s.autoHideBottomBar = j.value("autoHideBottomBar", true);
     s.enableMediaKeys = j.value("enableMediaKeys", true);
     s.mediaKeysExclusive = j.value("mediaKeysExclusive", true);
     s.forceFocusOnMediaKey = j.value("forceFocusOnMediaKey", false);
