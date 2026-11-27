@@ -62,7 +62,10 @@ void AppUI::init(GLFWwindow* window) {
     m_player.setEqGains(s.eqGainsDb);
     m_shuffle = s.shuffle;
     m_repeatMode = s.repeatMode;
-    m_viewMode = s.viewMode;
+    m_viewMode = std::clamp(s.viewMode, 0, 1);
+    m_uiScale = std::max(0.20f, s.uiScale);
+    m_osFullscreen = (glfwGetWindowMonitor(window) != nullptr);
+    if (m_osFullscreen) m_fullscreenMode = true;
     m_mediaKeys.setConfig(s.enableMediaKeys, s.mediaKeysExclusive, s.forceFocusOnMediaKey);
     m_discord.setEnabled(s.enableDiscordRPC, s.discordClientId);
     createDefaultCover();
@@ -142,6 +145,23 @@ ImTextureID AppUI::getTrackThumb(const Track& t) {
     return m_defaultCoverTexture.imguiId();
 }
 
+void AppUI::applyAudioForTrack(const std::string& playlistId, const Track& track) {
+    auto s = m_library.settings();
+    if (track.audioOverride.enabled) {
+        m_player.setExtraGainDb(track.audioOverride.gainDb);
+        m_player.setEqGains(track.audioOverride.eqGainsDb);
+        return;
+    }
+    auto pl = m_library.getPlaylist(playlistId);
+    if (pl && pl->audioOverride.enabled) {
+        m_player.setExtraGainDb(pl->audioOverride.gainDb);
+        m_player.setEqGains(pl->audioOverride.eqGainsDb);
+        return;
+    }
+    m_player.setExtraGainDb(0.0f);
+    m_player.setEqGains(s.eqGainsDb);
+}
+
 void AppUI::playTrack(const std::string& playlistId, const Track& track) {
     bool offline = m_library.offlineMode();
     if (!track.localMediaPath.empty() && fs::exists(track.localMediaPath)) {
@@ -149,6 +169,7 @@ void AppUI::playTrack(const std::string& playlistId, const Track& track) {
         m_currentTrack = track;
         m_hasCurrentTrack = true;
         m_preloadedForTrackId.clear();
+        applyAudioForTrack(playlistId, track);
         loadCoverImage(track.localThumbnailPath);
         m_stats.recordPlayStart(track);
         m_lyrics.fetchForTrackAsync(track.id, track.title, track.artist, track.durationSec, offline);
@@ -317,6 +338,22 @@ void AppUI::handleShortcuts() {
         m_library.setVolume(v);
     }
     if (m_fullscreenMode && pressedOnce(GLFW_KEY_ESCAPE)) m_fullscreenMode = false;
+
+    // Ctrl + / - / 0 to scale List / Cards size
+    bool ctrl = (glfwGetKey(win, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || glfwGetKey(win, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS);
+    if (ctrl) {
+        bool plus = pressedOnce(GLFW_KEY_EQUAL) || pressedOnce(GLFW_KEY_KP_ADD);
+        bool minus = pressedOnce(GLFW_KEY_MINUS) || pressedOnce(GLFW_KEY_KP_SUBTRACT);
+        bool reset = pressedOnce(GLFW_KEY_0) || pressedOnce(GLFW_KEY_KP_0);
+        if (plus || minus || reset) {
+            if (reset) m_uiScale = 1.0f;
+            else m_uiScale = std::max(0.20f, m_uiScale + (plus ? 0.12f : -0.12f));
+            auto st = m_library.settings();
+            st.uiScale = m_uiScale;
+            m_library.updateSettings(st);
+            m_library.save();
+        }
+    }
 }
 
 void AppUI::update(double dtSeconds) {
@@ -340,6 +377,7 @@ void AppUI::update(double dtSeconds) {
             m_currentTrack = m_pendingTrack;
             m_hasCurrentTrack = true;
             m_preloadedForTrackId.clear();
+            applyAudioForTrack(m_currentPlaylistId, m_currentTrack);
             loadCoverImage(m_currentTrack.localThumbnailPath);
             m_stats.recordPlayStart(m_currentTrack);
             m_lyrics.fetchForTrackAsync(m_currentTrack.id, m_currentTrack.title, m_currentTrack.artist,
@@ -439,7 +477,8 @@ void AppUI::render() {
     if (contentHeight < 180.0f) contentHeight = 180.0f;
 
     if (m_fullscreenMode) {
-        ImGui::BeginChild("##FullscreenStage", ImVec2(0.0f, contentHeight), false);
+        ImGui::BeginChild("##FullscreenStage", ImVec2(0.0f, contentHeight), false,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         renderStagePanel(true);
         ImGui::EndChild();
     } else if (m_activeTab == MainTab::Playlists) {
@@ -461,7 +500,8 @@ void AppUI::render() {
 
         ImGui::SameLine();
 
-        ImGui::BeginChild("##StagePanel", ImVec2(0.0f, contentHeight), true);
+        ImGui::BeginChild("##StagePanel", ImVec2(0.0f, contentHeight), true,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         renderStagePanel(false);
         ImGui::EndChild();
     } else {
@@ -484,7 +524,8 @@ void AppUI::render() {
 
         ImGui::SameLine();
 
-        ImGui::BeginChild("##StagePanel", ImVec2(0.0f, contentHeight), true);
+        ImGui::BeginChild("##StagePanel", ImVec2(0.0f, contentHeight), true,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         renderStagePanel(false);
         ImGui::EndChild();
     }
@@ -498,6 +539,7 @@ void AppUI::render() {
 
     renderImportModal();
     renderRenameModal();
+    renderAudioOverrideModal();
     ImGui::End();
 }
 
@@ -583,10 +625,13 @@ void AppUI::renderTopBar() {
     if (rightX > ImGui::GetCursorPosX()) {
         ImGui::SameLine(rightX);
     }
-    ImGui::SetNextItemWidth(compactBar ? 85.0f : 102.0f);
-    const char* tplNames[] = { "YT Music", "Spotify", "TikTok", "Minimal" };
+    ImGui::SetNextItemWidth(compactBar ? 95.0f : 120.0f);
+    const char* tplNames[] = {
+        "YT Music", "Spotify", "TikTok", "Minimal",
+        "CH: Neon", "CH: Mint", "CH: Sunset", "CH: Emerald"
+    };
     int curTpl = static_cast<int>(m_library.activeTemplate());
-    if (ImGui::Combo("##TemplateCombo", &curTpl, tplNames, 4)) {
+    if (ImGui::Combo("##TemplateCombo", &curTpl, tplNames, 8)) {
         auto nextTpl = static_cast<GuiTemplate>(curTpl);
         m_library.setActiveTemplate(nextTpl);
         m_library.save();
@@ -752,15 +797,23 @@ void AppUI::renderPlaylistsTab() {
         ImGui::EndDisabled();
     }
     ImGui::SameLine();
-    const char* viewModes[] = { "Liste", "Grandes Cartes", "Compact" };
+    const char* viewModes[] = { "Liste", "Grandes Cartes" };
     ImGui::SetNextItemWidth(125.0f);
-    if (ImGui::Combo("##ViewMode", &m_viewMode, viewModes, 3)) {
+    if (ImGui::Combo("##ViewMode", &m_viewMode, viewModes, 2)) {
         auto st = m_library.settings();
         st.viewMode = m_viewMode;
         m_library.updateSettings(st);
         m_library.save();
     }
 
+    ImGui::SameLine();
+    if (ImGui::Button("Audio / dB")) {
+        m_showAudioModal = true;
+        m_audioModalIsPlaylist = true;
+        m_audioModalPlaylistId = pl.id;
+        m_audioModalLabel = "Playlist: " + pl.name;
+        m_audioModalData = pl.audioOverride;
+    }
     ImGui::SameLine();
     if (ImGui::Button("Renommer")) {
         m_showRenameModal = true;
@@ -787,11 +840,14 @@ void AppUI::renderPlaylistsTab() {
     bool offline = m_library.offlineMode();
 
     if (m_viewMode == 1) {
-        // Grandes Cartes (YouTube Music Home/Album Grid)
+        // Grandes Cartes (YouTube Music Home/Album Grid) - responsive, never overflows right
         ImGui::BeginChild("##GridScroll", ImVec2(0.0f, 0.0f), false);
-        float cardW = 168.0f;
-        float avail = ImGui::GetContentRegionAvail().x;
-        int cols = std::max(1, static_cast<int>(avail / (cardW + 14.0f)));
+        float avail = ImGui::GetContentRegionAvail().x - 18.0f; // reserve scrollbar width
+        float targetCardW = 165.0f * m_uiScale;
+        float spacing = 12.0f;
+        int cols = std::max(1, static_cast<int>((avail + spacing) / (targetCardW + spacing)));
+        float cardW = std::floor((avail - spacing * (cols - 1)) / static_cast<float>(cols));
+        float imgSide = std::max(64.0f, cardW - 20.0f); // account for ImageButton FramePadding
         int colIdx = 0;
         for (size_t i = 0; i < pl.tracks.size(); ++i) {
             const Track& t = pl.tracks[i];
@@ -799,10 +855,10 @@ void AppUI::renderPlaylistsTab() {
             bool isDownloaded = (t.downloadState == DownloadState::Downloaded && !t.localMediaPath.empty());
             bool unavailableOffline = offline && !isDownloaded;
 
-            if (colIdx > 0) ImGui::SameLine(0.0f, 14.0f);
+            if (colIdx > 0) ImGui::SameLine(0.0f, spacing);
             ImGui::BeginGroup();
             ImGui::BeginDisabled(unavailableOffline);
-            if (ImGui::ImageButton(("##gbtn_" + t.id).c_str(), getTrackThumb(t), ImVec2(cardW - 8.0f, cardW - 8.0f))) {
+            if (ImGui::ImageButton(("##gbtn_" + t.id).c_str(), getTrackThumb(t), ImVec2(imgSide, imgSide))) {
                 playTrack(pl.id, t);
             }
             if (ImGui::BeginPopupContextItem(("##gctx_" + t.id).c_str())) {
@@ -815,7 +871,7 @@ void AppUI::renderPlaylistsTab() {
                 }
                 ImGui::EndPopup();
             }
-            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + cardW - 8.0f);
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + cardW - 4.0f);
             ImGui::Text("%s", t.title.c_str());
             ImGui::TextDisabled("%s", t.artist.c_str());
             ImGui::PopTextWrapPos();
@@ -828,8 +884,8 @@ void AppUI::renderPlaylistsTab() {
         return;
     }
 
-    float rowH = (m_viewMode == 2) ? 34.0f : 56.0f;
-    float thumbSz = (m_viewMode == 2) ? 28.0f : 48.0f;
+    float rowH = 56.0f * m_uiScale;
+    float thumbSz = 48.0f * m_uiScale;
 
     if (ImGui::BeginTable("##TrackTable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
         ImGui::TableSetupColumn("Cover", ImGuiTableColumnFlags_WidthFixed, thumbSz + 12.0f);
@@ -868,6 +924,14 @@ void AppUI::renderPlaylistsTab() {
                     m_renameTrackId = t.id;
                     std::snprintf(m_renameTitleBuf, sizeof(m_renameTitleBuf), "%s", t.title.c_str());
                     std::snprintf(m_renameArtistBuf, sizeof(m_renameArtistBuf), "%s", t.artist.c_str());
+                }
+                if (ImGui::MenuItem("Audio / dB & EQ (ce titre)")) {
+                    m_showAudioModal = true;
+                    m_audioModalIsPlaylist = false;
+                    m_audioModalPlaylistId = pl.id;
+                    m_audioModalTrackId = t.id;
+                    m_audioModalLabel = "Titre: " + t.title;
+                    m_audioModalData = t.audioOverride;
                 }
                 ImGui::Separator();
                 if (!offline && !t.sourceUrl.empty()) {
@@ -1384,7 +1448,7 @@ void AppUI::renderStagePanel(bool isFullscreen) {
 
     float availW = ImGui::GetContentRegionAvail().x;
     float totalH = ImGui::GetContentRegionAvail().y;
-    float mediaH = isFullscreen ? (totalH - 70.0f) : std::min(availW * 0.72f, totalH * 0.46f);
+    float mediaH = isFullscreen ? (totalH - 95.0f) : std::min(availW * 0.72f, totalH * 0.44f);
     if (mediaH < 120.0f) mediaH = 120.0f;
 
     if (isFullscreen && m_lyricsMode) {
@@ -1664,6 +1728,55 @@ void AppUI::renderRenameModal() {
         }
         ImGui::SameLine();
         if (ImGui::Button("Annuler")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+}
+
+void AppUI::renderAudioOverrideModal() {
+    if (m_showAudioModal) {
+        ImGui::OpenPopup("Audio / dB & EQ");
+        m_showAudioModal = false;
+    }
+
+    if (ImGui::BeginPopupModal("Audio / dB & EQ", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("%s", m_audioModalLabel.c_str());
+        ImGui::Separator();
+
+        ImGui::Checkbox("Activer réglage audio personnalisé", &m_audioModalData.enabled);
+        ImGui::BeginDisabled(!m_audioModalData.enabled);
+        ImGui::SliderFloat("Gain (dB)", &m_audioModalData.gainDb, -18.0f, 18.0f, "%.1f dB");
+
+        const char* presetNames[] = { "Flat", "YouTube Music", "Spotify", "TikTok", "Custom" };
+        int pIdx = static_cast<int>(m_audioModalData.preset);
+        if (ImGui::Combo("Preset EQ", &pIdx, presetNames, 5)) {
+            m_audioModalData.preset = static_cast<AudioPreset>(pIdx);
+            if (m_audioModalData.preset != AudioPreset::Custom) {
+                m_audioModalData.eqGainsDb = presetEqGains(m_audioModalData.preset);
+            }
+        }
+        const char* bandLabels[5] = { "60 Hz", "230 Hz", "910 Hz", "3.6 kHz", "14 kHz" };
+        for (int i = 0; i < 5; ++i) {
+            if (ImGui::SliderFloat(bandLabels[i], &m_audioModalData.eqGainsDb[i], -12.0f, 12.0f, "%.1f dB")) {
+                m_audioModalData.preset = AudioPreset::Custom;
+            }
+        }
+        ImGui::EndDisabled();
+
+        if (ImGui::Button("Appliquer & Sauvegarder")) {
+            if (m_audioModalIsPlaylist) {
+                m_library.setPlaylistAudioOverride(m_audioModalPlaylistId, m_audioModalData);
+            } else {
+                m_library.setTrackAudioOverride(m_audioModalPlaylistId, m_audioModalTrackId, m_audioModalData);
+                if (m_hasCurrentTrack && m_currentTrack.id == m_audioModalTrackId) {
+                    m_currentTrack.audioOverride = m_audioModalData;
+                }
+            }
+            if (m_hasCurrentTrack) applyAudioForTrack(m_currentPlaylistId, m_currentTrack);
+            m_library.save();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Fermer")) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
 }

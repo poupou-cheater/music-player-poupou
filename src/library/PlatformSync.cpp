@@ -104,6 +104,17 @@ void PlatformSync::start() {
     if (m_running.exchange(true)) return;
     fs::create_directories("cache/stream");
     fs::create_directories("cache/thumbnails");
+
+    if (!m_jobHandle) {
+        HANDLE job = CreateJobObjectW(nullptr, nullptr);
+        if (job) {
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli{};
+            jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            SetInformationJobObject(job, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli));
+            m_jobHandle = job;
+        }
+    }
+
     m_fastWorker = std::thread(&PlatformSync::fastWorkerLoop, this);
     m_syncWorker = std::thread(&PlatformSync::syncWorkerLoop, this);
     m_dlWorker = std::thread(&PlatformSync::dlWorkerLoop, this);
@@ -113,6 +124,20 @@ void PlatformSync::start() {
 void PlatformSync::stop() {
     if (!m_running.exchange(false)) return;
     m_cancelDownloads.store(true);
+    m_fastQueue.clear();
+    m_syncQueue.clear();
+    m_dlQueue.clear();
+    {
+        std::lock_guard<std::mutex> lock(m_procMutex);
+        if (m_jobHandle) {
+            TerminateJobObject(static_cast<HANDLE>(m_jobHandle), 1);
+            CloseHandle(static_cast<HANDLE>(m_jobHandle));
+            m_jobHandle = nullptr;
+        }
+        for (void* p : m_activeProcesses) {
+            if (p) TerminateProcess(static_cast<HANDLE>(p), 1);
+        }
+    }
     m_fastQueue.cv.notify_all();
     m_syncQueue.cv.notify_all();
     m_dlQueue.cv.notify_all();
@@ -349,11 +374,11 @@ bool PlatformSync::downloadFileWinHttp(const std::string& url, const std::string
                 BYTE buffer[8192];
                 DWORD bytesRead = 0;
                 size_t totalBytes = 0;
-                while (WinHttpReadData(hReq, buffer, sizeof(buffer), &bytesRead) && bytesRead > 0) {
+                while (m_running.load() && WinHttpReadData(hReq, buffer, sizeof(buffer), &bytesRead) && bytesRead > 0) {
                     out.write(reinterpret_cast<const char*>(buffer), bytesRead);
                     totalBytes += bytesRead;
                 }
-                success = (totalBytes > 0);
+                success = (m_running.load() && totalBytes > 0);
             }
         }
     }
@@ -397,11 +422,26 @@ std::string PlatformSync::runYtDlp(const std::string& args, int& exitCode,
         return "";
     }
 
+    {
+        std::lock_guard<std::mutex> lock(m_procMutex);
+        if (m_jobHandle) AssignProcessToJobObject(static_cast<HANDLE>(m_jobHandle), pi.hProcess);
+        m_activeProcesses.push_back(pi.hProcess);
+    }
+
     std::string output;
     std::string lineBuf;
     char buf[2048];
     DWORD bytesRead = 0;
-    while (ReadFile(readPipe, buf, sizeof(buf), &bytesRead, nullptr) && bytesRead > 0) {
+    while (m_running.load()) {
+        DWORD avail = 0;
+        if (!PeekNamedPipe(readPipe, nullptr, 0, nullptr, &avail, nullptr)) break;
+        if (avail == 0) {
+            if (WaitForSingleObject(pi.hProcess, 25) == WAIT_OBJECT_0) {
+                if (!PeekNamedPipe(readPipe, nullptr, 0, nullptr, &avail, nullptr) || avail == 0) break;
+            }
+            continue;
+        }
+        if (!ReadFile(readPipe, buf, sizeof(buf), &bytesRead, nullptr) || bytesRead == 0) break;
         output.append(buf, bytesRead);
         if (onLine) {
             lineBuf.append(buf, bytesRead);
@@ -415,7 +455,14 @@ std::string PlatformSync::runYtDlp(const std::string& args, int& exitCode,
     }
     CloseHandle(readPipe);
 
-    WaitForSingleObject(pi.hProcess, INFINITE);
+    if (m_running.load()) WaitForSingleObject(pi.hProcess, 2000);
+    {
+        std::lock_guard<std::mutex> lock(m_procMutex);
+        m_activeProcesses.erase(
+            std::remove(m_activeProcesses.begin(), m_activeProcesses.end(), static_cast<void*>(pi.hProcess)),
+            m_activeProcesses.end()
+        );
+    }
     DWORD code = 0;
     GetExitCodeProcess(pi.hProcess, &code);
     exitCode = static_cast<int>(code);
@@ -459,24 +506,36 @@ void PlatformSync::fastWorkerLoop() {
             bool isTikTokPhoto = (task.url.find("/photo/") != std::string::npos);
 
             if (isTikTok) {
-                std::string ext = (task.asVideo && !isTikTokPhoto) ? "mp4" : "m4a";
-                std::string cacheFile = "cache/stream/" + LibraryManager::sanitizeId(task.trackId.empty() ? "tt" : task.trackId) + "." + ext;
-                if (!fs::exists(cacheFile)) {
-                    std::string fmt = (task.asVideo && !isTikTokPhoto)
-                        ? "best[ext=mp4]/best"
-                        : "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best[ext=mp4]/best";
-                    std::string ff = ffmpegArg();
-                    std::string extra = (task.asVideo && !isTikTokPhoto) ? "" : "-x --audio-format m4a ";
-                    int code = -1;
-                    runYtDlp(ff + "--no-part --no-warnings -f \"" + fmt + "\" " + extra + "-o \"" + cacheFile + "\" \"" + task.url + "\"", code);
+                std::string safeId = LibraryManager::sanitizeId(task.trackId.empty() ? "tt" : task.trackId);
+                std::string foundFile;
+                for (const char* ext : { "mp4", "m4a", "mp3", "webm" }) {
+                    std::string cand = "cache/stream/" + safeId + "." + ext;
+                    if (fs::exists(cand) && fs::file_size(cand) > 1024) { foundFile = cand; break; }
                 }
-                if (fs::exists(cacheFile)) {
+                if (foundFile.empty()) {
+                    std::string ff = ffmpegArg();
+                    std::string outTmpl = "cache/stream/" + safeId + ".%(ext)s";
+                    int code = -1;
+                    if (isTikTokPhoto) {
+                        runYtDlp(ff + "--force-overwrites --no-part --no-warnings -f \"bestaudio/best\" " +
+                                 (ff.empty() ? "" : "-x --audio-format m4a ") +
+                                 "-o \"" + outTmpl + "\" \"" + task.url + "\"", code);
+                    } else {
+                        runYtDlp(ff + "--force-overwrites --no-part --no-warnings -f \"best[ext=mp4]/best\" -o \"" +
+                                 outTmpl + "\" \"" + task.url + "\"", code);
+                    }
+                    for (const char* ext : { "mp4", "m4a", "mp3", "webm" }) {
+                        std::string cand = "cache/stream/" + safeId + "." + ext;
+                        if (fs::exists(cand) && fs::file_size(cand) > 1024) { foundFile = cand; break; }
+                    }
+                }
+                if (!foundFile.empty()) {
                     {
                         std::lock_guard<std::mutex> lock(m_streamCacheMutex);
-                        m_streamCache[cacheKey] = cacheFile;
+                        m_streamCache[cacheKey] = foundFile;
                     }
                     setStatus("Playing TikTok (Ad-Free)");
-                    if (task.streamCb) task.streamCb(true, cacheFile, "");
+                    if (task.streamCb) task.streamCb(true, foundFile, "");
                 } else {
                     setStatus("TikTok stream failed");
                     if (task.streamCb) task.streamCb(false, "", "Could not load TikTok media");

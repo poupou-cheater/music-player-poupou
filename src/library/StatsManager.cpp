@@ -89,8 +89,13 @@ void StatsManager::save() const {
         {"tracks", jTracks},
         {"history", jHist}
     };
+    std::string dumped = j.dump(2);
+    if (dumped == m_lastSavedDump) return;
     std::ofstream f(m_jsonPath);
-    f << j.dump(2);
+    if (f.is_open()) {
+        f << dumped;
+        m_lastSavedDump = std::move(dumped);
+    }
 }
 
 void StatsManager::recordPlayStart(const Track& track) {

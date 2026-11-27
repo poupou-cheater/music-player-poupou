@@ -25,6 +25,7 @@ public:
 
     void setVolume(float volume); // 0.0 .. 1.5 (0% .. 150%)
     float volume() const { return m_volume.load(); }
+    void setExtraGainDb(float db); // per-track / per-playlist dB gain (-12 .. +12 dB)
     void setMuted(bool muted);
     bool isMuted() const { return m_muted.load(); }
 
@@ -124,6 +125,7 @@ private:
     std::atomic<int> m_fadeInSamples{0};
 
     std::atomic<float> m_volume{0.85f};
+    std::atomic<float> m_extraGainLinear{1.0f};
     std::atomic<bool> m_muted{false};
     std::atomic<double> m_durationSec{0.0};
     std::atomic<double> m_clockSec{0.0};

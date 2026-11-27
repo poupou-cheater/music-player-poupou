@@ -43,6 +43,7 @@ int main() {
     AppSettings initSettings = library.settings();
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     int startW = (initSettings.winW >= 640) ? initSettings.winW : 1400;
     int startH = (initSettings.winH >= 480) ? initSettings.winH : 860;
     GLFWwindow* window = glfwCreateWindow(startW, startH, "StreamPulse - C++ Vulkan Media Player", nullptr, nullptr);
@@ -50,11 +51,35 @@ int main() {
         glfwTerminate();
         return 1;
     }
-    if (initSettings.winX >= -32000 && initSettings.winY >= -32000 && initSettings.winX != -1) {
-        glfwSetWindowPos(window, initSettings.winX, initSettings.winY);
-    }
-    if (initSettings.winMaximized) {
+    if (initSettings.winOsFullscreen) {
+        int mCount = 0;
+        GLFWmonitor** monitors = glfwGetMonitors(&mCount);
+        GLFWmonitor* mon = (initSettings.winMonitorIndex >= 0 && initSettings.winMonitorIndex < mCount)
+            ? monitors[initSettings.winMonitorIndex]
+            : glfwGetPrimaryMonitor();
+        const GLFWvidmode* mode = mon ? glfwGetVideoMode(mon) : nullptr;
+        if (mon && mode) {
+            glfwSetWindowMonitor(window, mon, 0, 0, mode->width, mode->height, mode->refreshRate);
+        }
+        glfwShowWindow(window);
+    } else if (initSettings.winMaximized) {
+        int mCount = 0;
+        GLFWmonitor** monitors = glfwGetMonitors(&mCount);
+        GLFWmonitor* mon = (initSettings.winMonitorIndex >= 0 && initSettings.winMonitorIndex < mCount)
+            ? monitors[initSettings.winMonitorIndex]
+            : glfwGetPrimaryMonitor();
+        if (mon) {
+            int mx = 0, my = 0;
+            glfwGetMonitorPos(mon, &mx, &my);
+            glfwSetWindowPos(window, mx + 40, my + 40);
+        }
+        glfwShowWindow(window);
         glfwMaximizeWindow(window);
+    } else {
+        if (initSettings.winX >= -32000 && initSettings.winY >= -32000 && initSettings.winX != -1) {
+            glfwSetWindowPos(window, initSettings.winX, initSettings.winY);
+        }
+        glfwShowWindow(window);
     }
 
     // Enable Windows Dark Title Bar (DWMWA_USE_IMMERSIVE_DARK_MODE)
@@ -184,22 +209,41 @@ int main() {
         }
     }
 
-    // Save exact OS window position, size, and maximized state on exit
+    // Save exact OS window position, size, monitor index, maximized, and OS fullscreen state on exit
     {
         auto st = library.settings();
-        st.winMaximized = (glfwGetWindowAttrib(window, GLFW_MAXIMIZED) == GLFW_TRUE);
-        if (!st.winMaximized) {
-            int wx = 0, wy = 0, ww = 0, wh = 0;
-            glfwGetWindowPos(window, &wx, &wy);
-            glfwGetWindowSize(window, &ww, &wh);
-            if (ww >= 640 && wh >= 480) {
-                st.winX = wx;
-                st.winY = wy;
-                st.winW = ww;
-                st.winH = wh;
+        GLFWmonitor* fsMon = glfwGetWindowMonitor(window);
+        st.winOsFullscreen = (fsMon != nullptr);
+        st.winMaximized = (!st.winOsFullscreen && glfwGetWindowAttrib(window, GLFW_MAXIMIZED) == GLFW_TRUE);
+
+        int wx = 0, wy = 0, ww = 0, wh = 0;
+        glfwGetWindowPos(window, &wx, &wy);
+        glfwGetWindowSize(window, &ww, &wh);
+        int cx = wx + ww / 2;
+        int cy = wy + wh / 2;
+
+        int mCount = 0;
+        GLFWmonitor** monitors = glfwGetMonitors(&mCount);
+        st.winMonitorIndex = 0;
+        for (int i = 0; i < mCount; ++i) {
+            if (fsMon == monitors[i]) { st.winMonitorIndex = i; break; }
+            int mx = 0, my = 0;
+            glfwGetMonitorPos(monitors[i], &mx, &my);
+            const GLFWvidmode* mode = glfwGetVideoMode(monitors[i]);
+            if (mode && cx >= mx && cx < mx + mode->width && cy >= my && cy < my + mode->height) {
+                st.winMonitorIndex = i;
             }
         }
+
+        if (!st.winMaximized && !st.winOsFullscreen && ww >= 640 && wh >= 480) {
+            st.winX = wx;
+            st.winY = wy;
+            st.winW = ww;
+            st.winH = wh;
+        }
         library.updateSettings(st);
+        library.save();
+        stats.save();
     }
 
     vk.waitIdle();
@@ -208,8 +252,6 @@ int main() {
     sync.stop();
     mediaKeys.shutdown();
     discord.shutdown();
-    stats.save();
-    library.save();
     icons.destroyAll(vk);
 
     ImGui_ImplVulkan_Shutdown();

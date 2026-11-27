@@ -157,7 +157,7 @@ void MediaPlayer::fillAudioOutput(float* output, uint32_t frameCount) {
         }
     }
 
-    const float gain = m_muted.load() ? 0.0f : m_volume.load();
+    const float gain = m_muted.load() ? 0.0f : (m_volume.load() * m_extraGainLinear.load());
     int fadeRem = m_fadeInSamples.load();
     const int fadeTotal = static_cast<int>(m_sampleRate / 100) * static_cast<int>(m_channels); // 10ms smooth ramp
     for (size_t i = 0; i < popped; ++i) {
@@ -251,6 +251,11 @@ void MediaPlayer::seek(double seconds) {
 
 void MediaPlayer::setVolume(float volume) {
     m_volume.store(std::clamp(volume, 0.0f, 1.5f));
+}
+
+void MediaPlayer::setExtraGainDb(float db) {
+    float clamped = std::clamp(db, -18.0f, 18.0f);
+    m_extraGainLinear.store(std::pow(10.0f, clamped / 20.0f));
 }
 
 void MediaPlayer::setMuted(bool muted) {

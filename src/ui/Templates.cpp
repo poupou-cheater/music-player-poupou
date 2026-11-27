@@ -45,6 +45,62 @@ TemplatePalette getTemplatePalette(GuiTemplate tpl) {
                 12.0f,
                 true
             };
+        case GuiTemplate::ColorHuntNeonNight:
+            return {
+                "ColorHunt: Neon Night",
+                ImVec4(0.10f, 0.10f, 0.18f, 1.0f),    // #1A1A2E
+                ImVec4(0.08f, 0.13f, 0.24f, 1.0f),    // #16213E
+                ImVec4(0.06f, 0.20f, 0.38f, 1.0f),    // #0F3460
+                ImVec4(0.91f, 0.27f, 0.38f, 1.0f),    // #E94560
+                ImVec4(0.96f, 0.39f, 0.48f, 1.0f),
+                ImVec4(0.35f, 0.72f, 1.00f, 1.0f),
+                ImVec4(0.96f, 0.96f, 0.98f, 1.0f),
+                ImVec4(0.64f, 0.68f, 0.78f, 1.0f),
+                10.0f,
+                false
+            };
+        case GuiTemplate::ColorHuntCyberMint:
+            return {
+                "ColorHunt: Cyber Mint",
+                ImVec4(0.13f, 0.16f, 0.19f, 1.0f),    // #222831
+                ImVec4(0.10f, 0.12f, 0.15f, 1.0f),
+                ImVec4(0.22f, 0.24f, 0.27f, 1.0f),    // #393E46
+                ImVec4(0.00f, 0.68f, 0.71f, 1.0f),    // #00ADB5
+                ImVec4(0.12f, 0.78f, 0.81f, 1.0f),
+                ImVec4(0.93f, 0.93f, 0.93f, 1.0f),    // #EEEEEE
+                ImVec4(0.93f, 0.93f, 0.93f, 1.0f),
+                ImVec4(0.62f, 0.66f, 0.70f, 1.0f),
+                8.0f,
+                false
+            };
+        case GuiTemplate::ColorHuntSunsetSynth:
+            return {
+                "ColorHunt: Sunset Synth",
+                ImVec4(0.17f, 0.18f, 0.29f, 1.0f),    // #2B2E4A
+                ImVec4(0.13f, 0.13f, 0.22f, 1.0f),
+                ImVec4(0.33f, 0.21f, 0.29f, 1.0f),    // #53354A
+                ImVec4(0.91f, 0.27f, 0.27f, 1.0f),    // #E84545
+                ImVec4(0.96f, 0.39f, 0.39f, 1.0f),
+                ImVec4(0.56f, 0.22f, 0.29f, 1.0f),    // #903749
+                ImVec4(0.97f, 0.95f, 0.96f, 1.0f),
+                ImVec4(0.72f, 0.65f, 0.70f, 1.0f),
+                10.0f,
+                false
+            };
+        case GuiTemplate::ColorHuntEmeraldDark:
+            return {
+                "ColorHunt: Emerald Dark",
+                ImVec4(0.02f, 0.05f, 0.07f, 1.0f),    // #040D12
+                ImVec4(0.05f, 0.11f, 0.12f, 1.0f),
+                ImVec4(0.09f, 0.24f, 0.24f, 1.0f),    // #183D3D
+                ImVec4(0.36f, 0.51f, 0.45f, 1.0f),    // #5C8374
+                ImVec4(0.46f, 0.63f, 0.56f, 1.0f),
+                ImVec4(0.58f, 0.69f, 0.65f, 1.0f),    // #93B1A6
+                ImVec4(0.92f, 0.96f, 0.95f, 1.0f),
+                ImVec4(0.58f, 0.69f, 0.65f, 1.0f),
+                10.0f,
+                false
+            };
         case GuiTemplate::Minimal:
         default:
             return {

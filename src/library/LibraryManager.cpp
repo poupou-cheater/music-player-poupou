@@ -10,6 +10,24 @@
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
+static void to_json(json& j, const AudioOverride& o) {
+    j = json{
+        {"enabled", o.enabled},
+        {"gainDb", o.gainDb},
+        {"preset", static_cast<int>(o.preset)},
+        {"eqGainsDb", o.eqGainsDb}
+    };
+}
+
+static void from_json(const json& j, AudioOverride& o) {
+    o.enabled = j.value("enabled", false);
+    o.gainDb = j.value("gainDb", 0.0f);
+    o.preset = static_cast<AudioPreset>(j.value("preset", 4));
+    if (j.contains("eqGainsDb") && j["eqGainsDb"].is_array() && j["eqGainsDb"].size() == 5) {
+        for (size_t i = 0; i < 5; ++i) o.eqGainsDb[i] = j["eqGainsDb"][i].get<float>();
+    }
+}
+
 static void to_json(json& j, const Track& t) {
     j = json{
         {"id", t.id},
@@ -24,7 +42,8 @@ static void to_json(json& j, const Track& t) {
         {"localMediaPath", t.localMediaPath},
         {"downloadState", static_cast<int>(t.downloadState)},
         {"liked", t.liked},
-        {"tags", t.tags}
+        {"tags", t.tags},
+        {"audioOverride", t.audioOverride}
     };
 }
 
@@ -48,6 +67,9 @@ static void from_json(const json& j, Track& t) {
         extractHashtags(rawTitle, t.title, t.tags);
     }
 
+    if (j.contains("audioOverride")) {
+        t.audioOverride = j.at("audioOverride").get<AudioOverride>();
+    }
     if (t.downloadState == DownloadState::Downloaded && !t.localMediaPath.empty()) {
         if (!fs::exists(t.localMediaPath)) {
             t.downloadState = DownloadState::None;
@@ -69,7 +91,8 @@ static void to_json(json& j, const Playlist& p) {
         {"autoDownload", p.autoDownload},
         {"preferVideo", p.preferVideo},
         {"lastSynced", p.lastSynced},
-        {"tracks", p.tracks}
+        {"tracks", p.tracks},
+        {"audioOverride", p.audioOverride}
     };
 }
 
@@ -85,6 +108,9 @@ static void from_json(const json& j, Playlist& p) {
     if (j.contains("tracks")) {
         p.tracks = j.at("tracks").get<std::vector<Track>>();
     }
+    if (j.contains("audioOverride")) {
+        p.audioOverride = j.at("audioOverride").get<AudioOverride>();
+    }
 }
 
 static void to_json(json& j, const AppSettings& s) {
@@ -96,12 +122,15 @@ static void to_json(json& j, const AppSettings& s) {
         {"shuffle", s.shuffle},
         {"repeatMode", s.repeatMode},
         {"viewMode", s.viewMode},
+        {"uiScale", s.uiScale},
         {"selectedPlaylistId", s.selectedPlaylistId},
         {"winX", s.winX},
         {"winY", s.winY},
         {"winW", s.winW},
         {"winH", s.winH},
         {"winMaximized", s.winMaximized},
+        {"winOsFullscreen", s.winOsFullscreen},
+        {"winMonitorIndex", s.winMonitorIndex},
         {"audioPreset", static_cast<int>(s.audioPreset)},
         {"eqGainsDb", s.eqGainsDb},
         {"autoHideBarsFullscreen", s.autoHideBarsFullscreen},
@@ -129,12 +158,15 @@ static void from_json(const json& j, AppSettings& s) {
     s.shuffle = j.value("shuffle", false);
     s.repeatMode = j.value("repeatMode", j.value("repeat", false) ? 2 : 0);
     s.viewMode = j.value("viewMode", 0);
+    s.uiScale = j.value("uiScale", 1.0f);
     s.selectedPlaylistId = j.value("selectedPlaylistId", "");
     s.winX = j.value("winX", -1);
     s.winY = j.value("winY", -1);
     s.winW = j.value("winW", 1400);
     s.winH = j.value("winH", 860);
     s.winMaximized = j.value("winMaximized", false);
+    s.winOsFullscreen = j.value("winOsFullscreen", false);
+    s.winMonitorIndex = j.value("winMonitorIndex", 0);
     s.audioPreset = static_cast<AudioPreset>(j.value("audioPreset", 1));
     if (j.contains("eqGainsDb") && j["eqGainsDb"].is_array() && j["eqGainsDb"].size() == 5) {
         for (size_t i = 0; i < 5; ++i) s.eqGainsDb[i] = j["eqGainsDb"][i].get<float>();
@@ -229,8 +261,13 @@ void LibraryManager::save() const {
         {"settings", m_settings},
         {"playlists", m_playlists}
     };
+    std::string dumped = j.dump(2);
+    if (dumped == m_lastSavedDump) return;
     std::ofstream f(m_jsonPath);
-    f << j.dump(2);
+    if (f.is_open()) {
+        f << dumped;
+        m_lastSavedDump = std::move(dumped);
+    }
 }
 
 void LibraryManager::ensureDefaultPlaylists() {
@@ -443,6 +480,30 @@ void LibraryManager::renameTrack(const std::string& playlistId, const std::strin
             if (t.id == trackId) {
                 if (!newTitle.empty()) t.title = newTitle;
                 if (!newArtist.empty()) t.artist = newArtist;
+                break;
+            }
+        }
+        break;
+    }
+}
+
+void LibraryManager::setPlaylistAudioOverride(const std::string& playlistId, const AudioOverride& ov) {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    for (auto& p : m_playlists) {
+        if (p.id == playlistId) {
+            p.audioOverride = ov;
+            break;
+        }
+    }
+}
+
+void LibraryManager::setTrackAudioOverride(const std::string& playlistId, const std::string& trackId, const AudioOverride& ov) {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    for (auto& p : m_playlists) {
+        if (p.id != playlistId) continue;
+        for (auto& t : p.tracks) {
+            if (t.id == trackId) {
+                t.audioOverride = ov;
                 break;
             }
         }

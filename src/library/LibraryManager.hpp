@@ -32,6 +32,8 @@ public:
     void addTrackToPlaylist(const std::string& playlistId, const Track& track);
     void renameTrack(const std::string& playlistId, const std::string& trackId,
                      const std::string& newTitle, const std::string& newArtist);
+    void setPlaylistAudioOverride(const std::string& playlistId, const AudioOverride& ov);
+    void setTrackAudioOverride(const std::string& playlistId, const std::string& trackId, const AudioOverride& ov);
     void moveTrackInPlaylist(const std::string& playlistId, size_t fromIdx, size_t toIdx);
     void removeTrackFromPlaylist(const std::string& playlistId, const std::string& trackId);
     void clearTrackLocalMedia(const std::string& playlistId, const std::string& trackId);
@@ -63,6 +65,7 @@ private:
 
     mutable std::mutex m_mtx;
     std::string m_jsonPath = "data/library.json";
+    mutable std::string m_lastSavedDump;
     std::vector<Playlist> m_playlists;
     std::vector<Playlist> m_deletedPlaylists;
     AppSettings m_settings;

@@ -40,6 +40,7 @@ public:
 private:
     mutable std::mutex m_mtx;
     std::string m_jsonPath = "data/stats.json";
+    mutable std::string m_lastSavedDump;
     double m_totalSeconds = 0.0;
     int m_totalPlays = 0;
     std::array<double, 4> m_platformSeconds = { 0, 0, 0, 0 };

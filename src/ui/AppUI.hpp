@@ -60,6 +60,8 @@ private:
     void renderPlayerBar();
     void renderImportModal();
     void renderRenameModal();
+    void renderAudioOverrideModal();
+    void applyAudioForTrack(const std::string& playlistId, const Track& track);
 
     void handleShortcuts();
     void playTrack(const std::string& playlistId, const Track& track);
@@ -105,6 +107,7 @@ private:
     bool m_lyricsMode = false;
     int m_stageTab = 0; // 0 = À suivre (Queue), 1 = Paroles (Lyrics)
     int m_viewMode = 0; // 0 = Liste YT Music, 1 = Grandes Cartes, 2 = Compact
+    float m_uiScale = 1.0f;
     int m_consecutiveErrors = 0;
     double m_idleSeconds = 0.0;
     ImVec2 m_lastMousePos = ImVec2(-1, -1);
@@ -166,4 +169,11 @@ private:
     std::string m_renameTrackId;
     char m_renameTitleBuf[256]{};
     char m_renameArtistBuf[128]{};
+
+    bool m_showAudioModal = false;
+    bool m_audioModalIsPlaylist = false;
+    std::string m_audioModalPlaylistId;
+    std::string m_audioModalTrackId;
+    std::string m_audioModalLabel;
+    AudioOverride m_audioModalData;
 };

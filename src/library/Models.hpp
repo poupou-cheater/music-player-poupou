@@ -24,7 +24,11 @@ enum class GuiTemplate {
     YouTubeMusic = 0,
     Spotify,
     TikTok,
-    Minimal
+    Minimal,
+    ColorHuntNeonNight,
+    ColorHuntCyberMint,
+    ColorHuntSunsetSynth,
+    ColorHuntEmeraldDark
 };
 
 enum class AudioPreset {
@@ -33,6 +37,13 @@ enum class AudioPreset {
     Spotify,
     TikTok,
     Custom
+};
+
+struct AudioOverride {
+    bool enabled = false;
+    float gainDb = 0.0f; // -12.0 .. +12.0 dB
+    AudioPreset preset = AudioPreset::Custom;
+    std::array<float, 5> eqGainsDb = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 };
 
 struct Track {
@@ -49,6 +60,7 @@ struct Track {
     DownloadState downloadState = DownloadState::None;
     bool liked = false;
     std::vector<std::string> tags;
+    AudioOverride audioOverride;
 };
 
 inline std::string normalizeUtf8Display(const std::string& in) {
@@ -133,6 +145,7 @@ struct Playlist {
     bool preferVideo = false;
     std::string lastSynced;
     std::vector<Track> tracks;
+    AudioOverride audioOverride;
 };
 
 struct AppSettings {
@@ -143,12 +156,15 @@ struct AppSettings {
     bool shuffle = false;
     int repeatMode = 0; // 0 = None, 1 = Repeat Same, 2 = Repeat Playlist/Queue
     int viewMode = 0; // 0 = Liste, 1 = Grandes Cartes, 2 = Compact
+    float uiScale = 1.0f; // 0.75 .. 1.60 (Ctrl + / -)
     std::string selectedPlaylistId;
     int winX = -1;
     int winY = -1;
     int winW = 1400;
     int winH = 860;
     bool winMaximized = false;
+    bool winOsFullscreen = false;
+    int winMonitorIndex = 0;
     AudioPreset audioPreset = AudioPreset::YouTubeMusic;
     std::array<float, 5> eqGainsDb = { 2.0f, 1.0f, 0.0f, 1.5f, 1.0f }; // 60, 230, 910, 3.6k, 14k Hz
     bool autoHideBarsFullscreen = true;
