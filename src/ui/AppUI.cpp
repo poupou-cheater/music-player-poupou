@@ -2075,17 +2075,29 @@ void AppUI::renderStagePanel(bool isFullscreen) {
         ImGui::TextDisabled("%s", durStr.c_str());
 
         // 5 transport buttons with equal padding between screen edges and between every button
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
         float ctrlCenterY = bottomY + 130.0f;
-        float g = std::max(8.0f, (availW - 152.0f) / 6.0f);
-        float shufX = g;
-        float prevX = shufX + 22.0f + g;
-        float playX = prevX + 28.0f + g;
-        float nextX = playX + 52.0f + g;
-        float repX  = nextX + 28.0f + g;
+        float g = std::max(6.0f, (availW - 194.0f) / 6.0f);
+        float shufCX = g + 14.0f;
+        float prevCX = g + 28.0f + g + 18.0f;
+        float playCX = g + 28.0f + g + 36.0f + g + 33.0f;
+        float nextCX = playCX + 33.0f + g + 18.0f;
+        float repCX  = availW - g - 14.0f;
 
-        ImGui::SetCursorPos(ImVec2(shufX, ctrlCenterY - 11.0f));
-        if (m_icons.button("##mob_shuf", "shuffle", 22.0f, m_shuffle ? pal.accent : pal.textMuted)) {
+        auto mobIconBtn = [&](const char* id, float cxBtn, const char* icon, float iconSz, ImVec4 tint) -> bool {
+            float hitSz = 48.0f;
+            ImGui::SetCursorPos(ImVec2(cxBtn - hitSz * 0.5f, ctrlCenterY - hitSz * 0.5f));
+            ImVec2 pMin = ImGui::GetCursorScreenPos();
+            bool clicked = ImGui::InvisibleButton(id, ImVec2(hitSz, hitSz));
+            if (ImGui::IsItemHovered()) {
+                dl->AddCircleFilled(ImVec2(pMin.x + hitSz * 0.5f, pMin.y + hitSz * 0.5f),
+                                    hitSz * 0.5f, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.12f)));
+            }
+            ImGui::SetCursorPos(ImVec2(cxBtn - iconSz * 0.5f, ctrlCenterY - iconSz * 0.5f));
+            m_icons.draw(icon, iconSz, tint);
+            return clicked;
+        };
+
+        if (mobIconBtn("##mob_shuf", shufCX, "shuffle", 28.0f, m_shuffle ? pal.accent : pal.textMuted)) {
             m_shuffle = !m_shuffle;
             auto st = m_library.settings();
             st.shuffle = m_shuffle;
@@ -2093,31 +2105,29 @@ void AppUI::renderStagePanel(bool isFullscreen) {
             m_library.save();
         }
 
-        ImGui::SetCursorPos(ImVec2(prevX, ctrlCenterY - 14.0f));
-        if (m_icons.button("##mob_prev", "prev", 28.0f, pal.textPrimary)) playPrev();
+        if (mobIconBtn("##mob_prev", prevCX, "prev", 36.0f, pal.textPrimary)) playPrev();
 
-        ImGui::SetCursorPos(ImVec2(playX, ctrlCenterY - 26.0f));
-        ImVec2 circleTopLeft = ImGui::GetCursorScreenPos();
-        dl->AddCircleFilled(ImVec2(circleTopLeft.x + 26.0f, circleTopLeft.y + 26.0f), 26.0f, ImGui::GetColorU32(pal.accent));
-        ImGui::SetCursorPos(ImVec2(playX + 12.0f, ctrlCenterY - 14.0f));
-        if (m_icons.button("##mob_play", m_player.isPlaying() ? "pause" : "play", 28.0f, ImVec4(0.05f, 0.05f, 0.07f, 1.0f))) {
+        // Center Play/Pause circle (66x66 exact hitbox, no hover animation)
+        ImGui::SetCursorPos(ImVec2(playCX - 33.0f, ctrlCenterY - 33.0f));
+        ImVec2 playMin = ImGui::GetCursorScreenPos();
+        if (ImGui::InvisibleButton("##mob_play", ImVec2(66.0f, 66.0f))) {
             if (m_player.isOpen()) m_player.togglePlayPause();
         }
+        dl->AddCircleFilled(ImVec2(playMin.x + 33.0f, playMin.y + 33.0f), 33.0f, ImGui::GetColorU32(pal.accent));
+        ImGui::SetCursorPos(ImVec2(playCX - 18.0f, ctrlCenterY - 18.0f));
+        m_icons.draw(m_player.isPlaying() ? "pause" : "play", 36.0f, ImVec4(0.05f, 0.05f, 0.07f, 1.0f));
 
-        ImGui::SetCursorPos(ImVec2(nextX, ctrlCenterY - 14.0f));
-        if (m_icons.button("##mob_next", "next", 28.0f, pal.textPrimary)) playNext();
+        if (mobIconBtn("##mob_next", nextCX, "next", 36.0f, pal.textPrimary)) playNext();
 
-        ImGui::SetCursorPos(ImVec2(repX, ctrlCenterY - 11.0f));
         const char* repIcon = (m_repeatMode == 0) ? "repeat" : (m_repeatMode == 1 ? "repeat_one" : "repeat_all");
         ImVec4 repCol = (m_repeatMode == 0) ? pal.textMuted : (m_repeatMode == 1 ? pal.accentSecondary : pal.accent);
-        if (m_icons.button("##mob_rep", repIcon, 22.0f, repCol)) {
+        if (mobIconBtn("##mob_rep", repCX, repIcon, 28.0f, repCol)) {
             m_repeatMode = (m_repeatMode == 0) ? 2 : (m_repeatMode == 2 ? 1 : 0);
             auto st = m_library.settings();
             st.repeatMode = m_repeatMode;
             m_library.updateSettings(st);
             m_library.save();
         }
-        ImGui::PopStyleVar();
 
         if (easedMQ > 0.01f) {
             float areaTop = 40.0f;
