@@ -2,7 +2,6 @@
 
 #include "library/DiscordRPC.hpp"
 #include "library/LibraryManager.hpp"
-#include "library/LyricsManager.hpp"
 #include "library/PlatformSync.hpp"
 #include "library/StatsManager.hpp"
 #include "media/MediaPlayer.hpp"
@@ -38,7 +37,7 @@ struct QueueEntry {
 class AppUI {
 public:
     AppUI(VulkanContext& vk, IconStore& icons, LibraryManager& library, PlatformSync& sync,
-          MediaPlayer& player, LyricsManager& lyrics, StatsManager& stats,
+          MediaPlayer& player, StatsManager& stats,
           DiscordRPC& discord, MediaKeys& mediaKeys);
     ~AppUI();
 
@@ -57,7 +56,6 @@ private:
     void renderStatsTab();
     void renderSettingsTab();
     void renderStagePanel(bool isFullscreen);
-    void renderLyricsView(float height);
     void renderPlayerBar();
     void renderImportModal();
     void renderRenameModal();
@@ -84,7 +82,6 @@ private:
     LibraryManager& m_library;
     PlatformSync& m_sync;
     MediaPlayer& m_player;
-    LyricsManager& m_lyrics;
     StatsManager& m_stats;
     DiscordRPC& m_discord;
     MediaKeys& m_mediaKeys;
@@ -107,8 +104,6 @@ private:
 
     // Stage modes & 3s auto-hide
     bool m_fullscreenMode = false;
-    bool m_lyricsMode = false;
-    int m_stageTab = 0; // 0 = À suivre (Queue), 1 = Paroles (Lyrics)
     int m_viewMode = 0; // 0 = Liste YT Music, 1 = Grandes Cartes, 2 = Compact
     float m_uiScale = 1.0f;
     int m_consecutiveErrors = 0;

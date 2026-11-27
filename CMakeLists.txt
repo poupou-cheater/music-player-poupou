@@ -89,7 +89,6 @@ add_executable(StreamPulse WIN32
     src/media/MediaPlayer.cpp
     src/library/LibraryManager.cpp
     src/library/PlatformSync.cpp
-    src/library/LyricsManager.cpp
     src/library/StatsManager.cpp
     src/library/DiscordRPC.cpp
     src/ui/IconStore.cpp

@@ -2,7 +2,6 @@
 #include "media/MediaPlayer.hpp"
 #include "library/LibraryManager.hpp"
 #include "library/PlatformSync.hpp"
-#include "library/LyricsManager.hpp"
 #include "library/StatsManager.hpp"
 #include "library/DiscordRPC.hpp"
 #include "ui/IconStore.hpp"
@@ -166,7 +165,6 @@ int main() {
     StatsManager stats;
     stats.load("data/stats.json");
 
-    LyricsManager lyrics;
     DiscordRPC discord;
 
     MediaKeys mediaKeys;
@@ -178,7 +176,7 @@ int main() {
     MediaPlayer player;
     player.init();
 
-    AppUI ui(vk, icons, library, sync, player, lyrics, stats, discord, mediaKeys);
+    AppUI ui(vk, icons, library, sync, player, stats, discord, mediaKeys);
     ui.init(window);
 
     auto lastTime = std::chrono::steady_clock::now();

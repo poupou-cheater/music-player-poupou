@@ -51,10 +51,10 @@ static bool matchesFilter(const Track& t, const std::string& filter) {
 }
 
 AppUI::AppUI(VulkanContext& vk, IconStore& icons, LibraryManager& library, PlatformSync& sync,
-             MediaPlayer& player, LyricsManager& lyrics, StatsManager& stats,
+             MediaPlayer& player, StatsManager& stats,
              DiscordRPC& discord, MediaKeys& mediaKeys)
     : m_vk(vk), m_icons(icons), m_library(library), m_sync(sync),
-      m_player(player), m_lyrics(lyrics), m_stats(stats),
+      m_player(player), m_stats(stats),
       m_discord(discord), m_mediaKeys(mediaKeys) {}
 
 AppUI::~AppUI() = default;
@@ -195,7 +195,6 @@ void AppUI::playTrack(const std::string& playlistId, const Track& track) {
         applyAudioForTrack(playlistId, track);
         loadCoverImage(track.localThumbnailPath);
         m_stats.recordPlayStart(track);
-        m_lyrics.fetchForTrackAsync(track.id, track.title, track.artist, track.durationSec, offline);
         m_discord.updatePresence(track, true, 0.0, track.durationSec);
         m_player.open(track.localMediaPath, !track.isVideo);
         m_playbackNotice = "Playing local file";
@@ -317,7 +316,6 @@ void AppUI::handleShortcuts() {
                     case 0: s.keyPlayPause = k; break;
                     case 1: s.keyMute = k; break;
                     case 2: s.keyFullscreen = k; break;
-                    case 3: s.keyLyrics = k; break;
                     case 4: s.keySeekBack = k; break;
                     case 5: s.keySeekFwd = k; break;
                     case 6: s.keyVolUp = k; break;
@@ -347,7 +345,6 @@ void AppUI::handleShortcuts() {
     if (pressedOnce(s.keyPlayPause) && m_player.isOpen()) m_player.togglePlayPause();
     if (pressedOnce(s.keyMute)) m_player.setMuted(!m_player.isMuted());
     if (pressedOnce(s.keyFullscreen)) m_fullscreenMode = !m_fullscreenMode;
-    if (pressedOnce(s.keyLyrics)) m_lyricsMode = !m_lyricsMode;
     if (pressedOnce(s.keySeekBack)) m_player.seek(m_player.positionSeconds() - 5.0);
     if (pressedOnce(s.keySeekFwd)) m_player.seek(m_player.positionSeconds() + 5.0);
     if (pressedOnce(s.keyVolUp)) {
@@ -403,8 +400,6 @@ void AppUI::update(double dtSeconds) {
             applyAudioForTrack(m_currentPlaylistId, m_currentTrack);
             loadCoverImage(m_currentTrack.localThumbnailPath);
             m_stats.recordPlayStart(m_currentTrack);
-            m_lyrics.fetchForTrackAsync(m_currentTrack.id, m_currentTrack.title, m_currentTrack.artist,
-                                        m_currentTrack.durationSec, m_library.offlineMode());
             m_discord.updatePresence(m_currentTrack, true, 0.0, m_currentTrack.durationSec);
             m_player.open(m_pendingOpenUri, m_pendingPreferAudioOnly);
             m_playbackNotice = "Direct stream (Ad-Free)";
@@ -616,41 +611,66 @@ void AppUI::renderTopBar() {
     float winW = ImGui::GetWindowWidth();
     bool compactBar = (winW < 1080.0f);
 
-    // Left: App Logo + Brand
-    m_icons.draw("app_logo", 24.0f, ImVec4(1, 1, 1, 1));
-    if (!compactBar) {
-        ImGui::SameLine(0.0f, 6.0f);
-        ImGui::SetWindowFontScale(1.08f);
-        ImGui::TextUnformatted("StreamPulse");
-        ImGui::SetWindowFontScale(1.0f);
-    }
+    auto drawHoverRect = [&](ImVec4 col) {
+        if (ImGui::IsItemHovered()) {
+            ImGui::GetWindowDrawList()->AddRect(
+                ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+                ImGui::GetColorU32(col), 4.0f, 0, 1.5f
+            );
+        }
+    };
 
-    // Center-Left: Clean YouTube Music navigation pills
-    ImGui::SameLine(0.0f, compactBar ? 10.0f : 18.0f);
-    auto tabBtn = [&](MainTab tab, const char* label, const char* icon) {
+    auto drawActiveBar = [&](bool active) {
+        if (active) {
+            ImVec2 mn = ImGui::GetItemRectMin();
+            ImVec2 mx = ImGui::GetItemRectMax();
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                ImVec2(mn.x + 2.0f, mx.y - 2.0f),
+                ImVec2(mx.x - 2.0f, mx.y),
+                ImGui::GetColorU32(pal.accent)
+            );
+        }
+    };
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.08f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.16f));
+
+    auto textTabBtn = [&](MainTab tab, const char* label) {
         bool active = (m_activeTab == tab);
-        ImGui::PushStyleColor(ImGuiCol_Button, active ? pal.accent : ImVec4(0.13f, 0.13f, 0.15f, 1.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 16.0f);
-        m_icons.draw(icon, 16.0f, active ? ImVec4(1, 1, 1, 1) : pal.textMuted);
-        ImGui::SameLine(0.0f, 4.0f);
+        ImGui::PushStyleColor(ImGuiCol_Text, active ? pal.accent : pal.textPrimary);
         if (ImGui::Button(label)) {
             m_activeTab = tab;
             m_fullscreenMode = false;
         }
-        ImGui::PopStyleVar();
         ImGui::PopStyleColor();
-        ImGui::SameLine(0.0f, compactBar ? 4.0f : 7.0f);
+        drawHoverRect(pal.accent);
+        drawActiveBar(active);
+        ImGui::SameLine(0.0f, compactBar ? 4.0f : 8.0f);
     };
 
-    tabBtn(MainTab::Playlists, "Accueil", "playlist");
-    tabBtn(MainTab::YouTubeMusic, compactBar ? "YTM" : "YT Music", "youtubemusic");
-    tabBtn(MainTab::TikTok, "TikTok", "tiktok");
-    tabBtn(MainTab::Queue, ("File(" + std::to_string(m_queue.size()) + ")").c_str(), "queue");
-    tabBtn(MainTab::Downloads, compactBar ? "DL" : "Downloads", "download");
-    tabBtn(MainTab::Stats, "Stats", "stats");
+    auto iconTabBtn = [&](MainTab tab, const char* id, const char* icon, const char* tip) {
+        bool active = (m_activeTab == tab);
+        if (m_icons.button(id, icon, 20.0f, active ? pal.accent : pal.textMuted)) {
+            m_activeTab = tab;
+            m_fullscreenMode = false;
+        }
+        drawHoverRect(pal.accent);
+        drawActiveBar(active);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+        ImGui::SameLine(0.0f, compactBar ? 4.0f : 8.0f);
+    };
+
+    textTabBtn(MainTab::Playlists, "Accueil");
+    iconTabBtn(MainTab::YouTubeMusic, "##tab_ytm", "youtubemusic", "YouTube Music");
+    iconTabBtn(MainTab::TikTok, "##tab_tt", "tiktok", "TikTok");
+    iconTabBtn(MainTab::Downloads, "##tab_dl", "download", "Downloads");
+    textTabBtn(MainTab::Queue, "File attente");
 
     // Right: Responsive aligned utility controls
-    float rightW = compactBar ? 275.0f : 315.0f;
+    float rightW = compactBar ? 245.0f : 285.0f;
     float rightX = winW - rightW;
     if (rightX > ImGui::GetCursorPosX()) {
         ImGui::SameLine(rightX);
@@ -687,22 +707,25 @@ void AppUI::renderTopBar() {
         m_activeTab = MainTab::Settings;
         m_fullscreenMode = false;
     }
+    drawHoverRect(pal.accent);
     ImGui::SameLine(0.0f, 6.0f);
 
     bool offline = m_library.offlineMode();
     bool netOk = m_sync.isNetworkAvailable();
-    ImVec4 btnCol = offline
-        ? ImVec4(0.85f, 0.35f, 0.15f, 1.0f)
-        : (netOk ? ImVec4(0.14f, 0.55f, 0.30f, 1.0f) : ImVec4(0.55f, 0.45f, 0.15f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_Button, btnCol);
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 16.0f);
+    ImVec4 statusCol = offline
+        ? ImVec4(0.92f, 0.45f, 0.20f, 1.0f)
+        : (netOk ? ImVec4(0.25f, 0.85f, 0.48f, 1.0f) : ImVec4(0.85f, 0.72f, 0.25f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, statusCol);
     if (ImGui::Button(offline ? (compactBar ? "Off" : "Hors Ligne") : (compactBar ? "On" : "En Ligne"))) {
         m_library.setOfflineMode(!offline);
         m_library.save();
         if (offline) m_sync.refreshNetworkStatusAsync();
     }
-    ImGui::PopStyleVar();
     ImGui::PopStyleColor();
+    drawHoverRect(statusCol);
+
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar(2);
 
     ImGui::EndChild();
     ImGui::PopStyleVar();
@@ -1480,6 +1503,10 @@ void AppUI::renderSettingsTab() {
     bool changed = false;
 
     if (ImGui::BeginTabBar("##SettingsSubTabs")) {
+        if (ImGui::BeginTabItem("Stats")) {
+            renderStatsTab();
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("Général")) {
             m_icons.draw("equalizer", 20.0f, pal.accent);
             ImGui::SameLine();
@@ -1546,7 +1573,6 @@ void AppUI::renderSettingsTab() {
             keybindRow("Play / Pause", 0, s.keyPlayPause);
             keybindRow("Mute", 1, s.keyMute);
             keybindRow("Fullscreen", 2, s.keyFullscreen);
-            keybindRow("Lyrics Mode", 3, s.keyLyrics);
             keybindRow("Seek -5s", 4, s.keySeekBack);
             keybindRow("Seek +5s", 5, s.keySeekFwd);
             keybindRow("Volume +5%", 6, s.keyVolUp);
@@ -1646,87 +1672,6 @@ void AppUI::renderSettingsTab() {
     }
 }
 
-void AppUI::renderLyricsView(float height) {
-    TemplatePalette pal = getTemplatePalette(m_library.activeTemplate());
-    ImVec4 cardBg = ImVec4(pal.accent.x * 0.22f + 0.07f, pal.accent.y * 0.22f + 0.07f, pal.accent.z * 0.22f + 0.10f, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, cardBg);
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 18.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(18.0f, 16.0f));
-    ImGui::BeginChild("##LyricsScroll", ImVec2(0.0f, height), true);
-
-    if (m_lyrics.isLoading()) {
-        ImGui::TextDisabled("Chargement des paroles...");
-    } else if (!m_lyrics.hasLyrics()) {
-        ImGui::TextDisabled("%s", m_lyrics.statusText().c_str());
-    } else {
-        auto lines = m_lyrics.linesCopy();
-        double pos = m_player.positionSeconds();
-        int active = m_lyrics.activeIndex(pos);
-
-        for (int i = 0; i < static_cast<int>(lines.size()); ++i) {
-            if (i == active) {
-                // Spotify-style word-by-word highlight on the active line
-                ImGui::SetWindowFontScale(1.38f);
-                std::vector<std::string> words;
-                std::string cur;
-                for (char c : lines[i].text) {
-                    if (c == ' ') {
-                        if (!cur.empty()) { words.push_back(cur); cur.clear(); }
-                    } else {
-                        cur.push_back(c);
-                    }
-                }
-                if (!cur.empty()) words.push_back(cur);
-
-                double lineStart = lines[i].timeSec;
-                double lineEnd = (i + 1 < static_cast<int>(lines.size()) && lines[i + 1].timeSec > lineStart)
-                    ? lines[i + 1].timeSec
-                    : (lineStart + std::max(1.5, words.size() * 0.35));
-                double lineDur = std::max(0.4, lineEnd - lineStart);
-                double frac = std::clamp((pos - lineStart) / lineDur, 0.0, 1.0);
-                int activeWord = words.empty() ? 0 : static_cast<int>(frac * static_cast<double>(words.size()));
-
-                float maxX = ImGui::GetWindowContentRegionMax().x;
-                for (int w = 0; w < static_cast<int>(words.size()); ++w) {
-                    ImVec4 wCol = (w <= activeWord)
-                        ? ImVec4(1.0f, 1.0f, 1.0f, 1.0f)
-                        : ImVec4(1.0f, 1.0f, 1.0f, 0.38f);
-                    ImGui::PushStyleColor(ImGuiCol_Text, wCol);
-                    ImGui::TextUnformatted(words[w].c_str());
-                    ImGui::PopStyleColor();
-                    if (w + 1 < static_cast<int>(words.size())) {
-                        float nextW = ImGui::CalcTextSize(words[w + 1].c_str()).x;
-                        if (ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x + nextW + 14.0f < maxX) {
-                            ImGui::SameLine(0.0f, 6.0f);
-                        }
-                    }
-                }
-                ImGui::SetWindowFontScale(1.0f);
-                if (m_player.isPlaying()) ImGui::SetScrollHereY(0.42f);
-                ImGui::Spacing();
-            } else {
-                float alpha = 0.42f;
-                if (active >= 0) {
-                    int d = std::abs(i - active);
-                    if (d == 1) alpha = 0.62f;
-                    else if (d == 2) alpha = 0.42f;
-                    else alpha = 0.26f;
-                }
-                ImGui::SetWindowFontScale(1.10f);
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, alpha));
-                if (ImGui::Selectable((lines[i].text + "##lyr_" + std::to_string(i)).c_str(), false)) {
-                    if (lines[i].timeSec >= 0.0) m_player.seek(lines[i].timeSec);
-                }
-                ImGui::PopStyleColor();
-                ImGui::SetWindowFontScale(1.0f);
-            }
-        }
-    }
-    ImGui::EndChild();
-    ImGui::PopStyleVar(2);
-    ImGui::PopStyleColor();
-}
-
 void AppUI::renderStagePanel(bool isFullscreen) {
     TemplatePalette pal = getTemplatePalette(m_library.activeTemplate());
 
@@ -1748,9 +1693,7 @@ void AppUI::renderStagePanel(bool isFullscreen) {
     float mediaH = isFullscreen ? (totalH - 95.0f) : std::min(availW * 0.72f, totalH * 0.44f);
     if (mediaH < 120.0f) mediaH = 120.0f;
 
-    if (isFullscreen && m_lyricsMode) {
-        renderLyricsView(mediaH);
-    } else if (m_player.hasVideo() && m_videoTexture.isValid()) {
+    if (m_player.hasVideo() && m_videoTexture.isValid()) {
         float aspect = static_cast<float>(m_videoTexture.width()) / static_cast<float>(m_videoTexture.height());
         float drawW = availW;
         float drawH = drawW / aspect;
@@ -1800,11 +1743,6 @@ void AppUI::renderStagePanel(bool isFullscreen) {
                     }
                 }
                 ImGui::EndChild();
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem("Paroles")) {
-                float lH = ImGui::GetContentRegionAvail().y;
-                renderLyricsView(lH);
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();

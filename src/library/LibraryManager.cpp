@@ -176,7 +176,6 @@ static void to_json(json& j, const AppSettings& s) {
         {"keyPlayPause", s.keyPlayPause},
         {"keyMute", s.keyMute},
         {"keyFullscreen", s.keyFullscreen},
-        {"keyLyrics", s.keyLyrics},
         {"keySeekBack", s.keySeekBack},
         {"keySeekFwd", s.keySeekFwd},
         {"keyVolUp", s.keyVolUp},
@@ -219,7 +218,6 @@ static void from_json(const json& j, AppSettings& s) {
     s.keyPlayPause = j.value("keyPlayPause", 32);
     s.keyMute = j.value("keyMute", 77);
     s.keyFullscreen = j.value("keyFullscreen", 70);
-    s.keyLyrics = j.value("keyLyrics", 76);
     s.keySeekBack = j.value("keySeekBack", 263);
     s.keySeekFwd = j.value("keySeekFwd", 262);
     s.keyVolUp = j.value("keyVolUp", 265);

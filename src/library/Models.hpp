@@ -193,7 +193,6 @@ struct AppSettings {
     int keyPlayPause = 32;   // GLFW_KEY_SPACE
     int keyMute = 77;        // GLFW_KEY_M
     int keyFullscreen = 70;  // GLFW_KEY_F
-    int keyLyrics = 76;      // GLFW_KEY_L
     int keySeekBack = 263;   // GLFW_KEY_LEFT
     int keySeekFwd = 262;    // GLFW_KEY_RIGHT
     int keyVolUp = 265;      // GLFW_KEY_UP
