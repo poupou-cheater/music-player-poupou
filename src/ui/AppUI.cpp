@@ -506,7 +506,8 @@ void AppUI::render() {
         float centerW = winW - sidebarW - stageW - 18.0f;
         if (centerW < 280.0f) centerW = 280.0f;
 
-        ImGui::BeginChild("##Sidebar", ImVec2(sidebarW, contentHeight), true);
+        ImGui::BeginChild("##Sidebar", ImVec2(sidebarW, contentHeight), true,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         renderSidebar();
         ImGui::EndChild();
 
@@ -707,7 +708,8 @@ void AppUI::renderSidebar() {
     TemplatePalette pal = activePalette();
     auto playlists = m_library.playlistsCopy();
 
-    ImGui::BeginChild("##SidebarScroll", ImVec2(0.0f, -44.0f), false);
+    float scrollH = std::max(40.0f, ImGui::GetContentRegionAvail().y - 48.0f);
+    ImGui::BeginChild("##SidebarScroll", ImVec2(0.0f, scrollH), false);
 
     m_icons.draw("heart_filled", 18.0f, pal.accent);
     ImGui::SameLine();
@@ -856,7 +858,6 @@ void AppUI::renderSidebar() {
 
     ImGui::EndChild();
     ImGui::Separator();
-    ImGui::Spacing();
     if (ImGui::Button("+ Importer", ImVec2(-1.0f, 30.0f))) {
         m_showImportModal = true;
     }
