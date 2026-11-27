@@ -465,6 +465,17 @@ void AppUI::update(double dtSeconds) {
         }
     }
 
+    // Auto-sync playlists every 30 minutes (1800s) when online
+    if (!m_library.offlineMode()) {
+        m_autoSyncAccum += dtSeconds;
+        if (m_autoSyncAccum >= 1800.0) {
+            m_autoSyncAccum = 0.0;
+            if (m_sync.activeTaskCount() == 0) {
+                m_sync.syncAllAutoPlaylistsAsync();
+            }
+        }
+    }
+
     if (m_player.consumeEnded()) {
         if (m_player.positionSeconds() >= 1.5 || m_player.durationSeconds() > 0.0) {
             if (m_repeatMode == 1) playTrack(m_currentPlaylistId, m_currentTrack); // Repeat Same
@@ -735,7 +746,11 @@ void AppUI::renderTopBar() {
     if (ImGui::Button(offline ? (compactBar ? "Off" : "Hors Ligne") : (compactBar ? "On" : "En Ligne"))) {
         m_library.setOfflineMode(!offline);
         m_library.save();
-        if (offline) m_sync.refreshNetworkStatusAsync();
+        if (offline) {
+            m_sync.refreshNetworkStatusAsync();
+            m_sync.syncAllAutoPlaylistsAsync();
+            m_autoSyncAccum = 0.0;
+        }
     }
     ImGui::PopStyleColor();
     drawHoverRect(statusCol);
@@ -2016,24 +2031,17 @@ void AppUI::renderPlayerBar() {
 
     rx += 44.0f;
     ImGui::SetCursorPos(ImVec2(rx, centerY - 16.0f));
+    const char* repIcon = (m_repeatMode == 0) ? "repeat" : (m_repeatMode == 1 ? "repeat_one" : "repeat_all");
     ImVec4 repCol = (m_repeatMode == 0) ? pal.textMuted : (m_repeatMode == 1 ? pal.accentSecondary : pal.accent);
-    if (m_icons.button("##repeat", "repeat", 24.0f, repCol)) {
-        m_repeatMode = (m_repeatMode + 1) % 3;
+    if (m_icons.button("##repeat", repIcon, 24.0f, repCol)) {
+        m_repeatMode = (m_repeatMode == 0) ? 2 : (m_repeatMode == 2 ? 1 : 0);
         auto st = m_library.settings();
         st.repeatMode = m_repeatMode;
         m_library.updateSettings(st);
         m_library.save();
     }
-    if (ImGui::IsItemHovered()) {
-        const char* repTip = (m_repeatMode == 0) ? "Repeat: Rien" : (m_repeatMode == 1 ? "Repeat: Même titre (1)" : "Repeat: Playlist / File (All)");
-        ImGui::SetTooltip("%s", repTip);
-    }
-    if (m_repeatMode > 0) {
-        ImGui::SetCursorPos(ImVec2(rx + 32.0f, centerY - 8.0f));
-        ImGui::TextColored(repCol, m_repeatMode == 1 ? "1" : "All");
-    }
 
-    rx += 56.0f;
+    rx += 44.0f;
     ImGui::SetCursorPos(ImVec2(rx, centerY - 16.0f));
     if (m_icons.button("##shuffle", "shuffle", 24.0f, m_shuffle ? pal.accent : pal.textMuted)) {
         m_shuffle = !m_shuffle;

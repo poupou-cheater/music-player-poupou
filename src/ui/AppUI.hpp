@@ -113,6 +113,7 @@ private:
     // Stats & Discord timers
     double m_statsSaveAccum = 0.0;
     double m_discordAccum = 0.0;
+    double m_autoSyncAccum = 0.0;
 
     // Pending stream open
     std::mutex m_pendingMutex;

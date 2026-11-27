@@ -512,35 +512,36 @@ void LibraryManager::mergeSyncedPlaylist(const std::string& playlistId, const st
         p.lastSynced = timestamp;
 
         if (!fetchedTracks.empty()) {
-            // 1. Remove tracks that were deleted from the remote playlist
-            p.tracks.erase(
-                std::remove_if(p.tracks.begin(), p.tracks.end(), [&](const Track& existing) {
-                    bool stillPresent = std::any_of(fetchedTracks.begin(), fetchedTracks.end(), [&](const Track& inc) {
-                        return inc.id == existing.id || (!inc.sourceUrl.empty() && inc.sourceUrl == existing.sourceUrl);
-                    });
-                    if (!stillPresent && !existing.localMediaPath.empty() && fs::exists(existing.localMediaPath)) {
-                        std::error_code ec;
-                        fs::remove(existing.localMediaPath, ec);
-                    }
-                    return !stillPresent;
-                }),
-                p.tracks.end()
-            );
-        }
-
-        // 2. Add new tracks and update missing metadata on existing tracks
-        for (const auto& incoming : fetchedTracks) {
-            auto it = std::find_if(p.tracks.begin(), p.tracks.end(), [&](const Track& existing) {
-                return existing.id == incoming.id || (!incoming.sourceUrl.empty() && existing.sourceUrl == incoming.sourceUrl);
-            });
-            if (it == p.tracks.end()) {
-                p.tracks.push_back(incoming);
-            } else {
-                if (it->title.empty() || it->title.find('?') != std::string::npos) it->title = incoming.title;
-                if (it->artist.empty() || it->artist.find('?') != std::string::npos) it->artist = incoming.artist;
-                if (it->thumbnailUrl.empty()) it->thumbnailUrl = incoming.thumbnailUrl;
-                if (it->durationSec <= 0.0) it->durationSec = incoming.durationSec;
+            // Preserve existing track state (likes, local files, EQ overrides) while matching remote order
+            std::vector<Track> merged;
+            merged.reserve(fetchedTracks.size());
+            for (const auto& incoming : fetchedTracks) {
+                auto it = std::find_if(p.tracks.begin(), p.tracks.end(), [&](const Track& existing) {
+                    return existing.id == incoming.id || (!incoming.sourceUrl.empty() && existing.sourceUrl == incoming.sourceUrl);
+                });
+                if (it == p.tracks.end()) {
+                    merged.push_back(incoming);
+                } else {
+                    Track updated = *it;
+                    if (updated.title.empty() || updated.title.find('?') != std::string::npos) updated.title = incoming.title;
+                    if (updated.artist.empty() || updated.artist.find('?') != std::string::npos) updated.artist = incoming.artist;
+                    if (updated.thumbnailUrl.empty()) updated.thumbnailUrl = incoming.thumbnailUrl;
+                    if (updated.durationSec <= 0.0) updated.durationSec = incoming.durationSec;
+                    merged.push_back(std::move(updated));
+                }
             }
+
+            // Clean up local files for tracks removed from the remote playlist
+            for (const auto& existing : p.tracks) {
+                bool stillPresent = std::any_of(merged.begin(), merged.end(), [&](const Track& m) {
+                    return m.id == existing.id || (!m.sourceUrl.empty() && m.sourceUrl == existing.sourceUrl);
+                });
+                if (!stillPresent && !existing.localMediaPath.empty() && fs::exists(existing.localMediaPath)) {
+                    std::error_code ec;
+                    fs::remove(existing.localMediaPath, ec);
+                }
+            }
+            p.tracks = std::move(merged);
         }
         break;
     }

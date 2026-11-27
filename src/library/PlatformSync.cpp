@@ -172,26 +172,31 @@ void PlatformSync::syncPlaylistAsync(const std::string& playlistId) {
 
 void PlatformSync::syncAllAutoPlaylistsAsync() {
     auto st = m_library.settings();
+    bool needCleanup = false;
     auto nowSec = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
     if (nowSec - st.lastCacheCleanupEpoch >= 86400) {
         st.lastCacheCleanupEpoch = nowSec;
         m_library.updateSettings(st);
-        cleanupOrphanCacheAsync();
+        needCleanup = true;
     }
-    if (m_library.offlineMode()) return;
-    hydrateMissingThumbnailsAsync();
-    auto lists = m_library.playlistsCopy();
-    for (const auto& p : lists) {
-        for (const auto& t : p.tracks) {
-            if (t.downloadState == DownloadState::Queued && !t.sourceUrl.empty()) {
-                queueDirectDownload(t, p.id, p.preferVideo);
+    if (!m_library.offlineMode()) {
+        auto lists = m_library.playlistsCopy();
+        for (const auto& p : lists) {
+            if (p.autoSync && !p.sourceUrl.empty() && p.platform != Platform::Local) {
+                syncPlaylistAsync(p.id);
+            }
+            for (const auto& t : p.tracks) {
+                if (t.downloadState == DownloadState::Queued && !t.sourceUrl.empty()) {
+                    queueDirectDownload(t, p.id, p.preferVideo);
+                }
             }
         }
-        if (p.autoSync && !p.sourceUrl.empty() && p.platform != Platform::Local) {
-            syncPlaylistAsync(p.id);
-        }
+        hydrateMissingThumbnailsAsync();
+    }
+    if (needCleanup) {
+        cleanupOrphanCacheAsync();
     }
 }
 
@@ -739,9 +744,9 @@ void PlatformSync::syncWorkerLoop() {
             if (pl && !pl->sourceUrl.empty()) {
                 setStatus("Syncing: " + pl->name + "...");
                 int code = -1;
-                std::string out = runYtDlp("--yes-playlist --flat-playlist -J --no-warnings \"" + pl->sourceUrl + "\"", code);
+                std::string out = runYtDlp("--ignore-errors --yes-playlist --flat-playlist -J --no-warnings \"" + pl->sourceUrl + "\"", code);
                 size_t jsonStart = out.find('{');
-                if (code == 0 && jsonStart != std::string::npos) {
+                if (jsonStart != std::string::npos && (code == 0 || out.find("\"entries\"") != std::string::npos)) {
                     try {
                         json j = json::parse(out.substr(jsonStart));
                         std::string resolvedName = strOr(j, "title", pl->name);
