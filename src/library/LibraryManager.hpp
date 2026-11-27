@@ -6,6 +6,14 @@
 #include <string>
 #include <vector>
 
+struct PlaylistSummary {
+    std::string id;
+    std::string name;
+    Platform platform = Platform::YouTubeMusic;
+    bool favorite = false;
+    size_t trackCount = 0;
+};
+
 class LibraryManager {
 public:
     void load(const std::string& jsonPath = "data/library.json");
@@ -15,6 +23,7 @@ public:
     static std::string sanitizeId(const std::string& raw);
 
     std::vector<Playlist> playlistsCopy() const;
+    std::vector<PlaylistSummary> playlistSummaries() const;
     std::optional<Playlist> getPlaylist(const std::string& playlistId) const;
     std::optional<Track> getTrack(const std::string& playlistId, const std::string& trackId) const;
 

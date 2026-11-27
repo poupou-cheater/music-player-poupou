@@ -85,5 +85,6 @@ inline bool loadImageRGBA(const std::string& path, std::vector<uint8_t>& outRgba
         decoder->Release();
     }
     factory->Release();
+    if (ok) downscaleRgbaIfNeeded(outRgba, outW, outH, maxSide);
     return ok;
 }

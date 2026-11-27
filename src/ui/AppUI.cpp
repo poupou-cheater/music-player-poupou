@@ -885,7 +885,7 @@ void AppUI::renderTopBar() {
 
 void AppUI::renderSidebar() {
     TemplatePalette pal = activePalette();
-    auto playlists = m_library.playlistsCopy();
+    auto playlists = m_library.playlistSummaries();
 
     float scrollH = std::max(40.0f, ImGui::GetContentRegionAvail().y - 48.0f);
     ImGui::BeginChild("##SidebarScroll", ImVec2(0.0f, scrollH), false);
@@ -918,38 +918,42 @@ void AppUI::renderSidebar() {
     }
 
     // Favorite Playlists section at top
-    auto drawPlaylistCtx = [&](const Playlist& pl, const char* popupId) {
+    auto drawPlaylistCtx = [&](const PlaylistSummary& pl, const char* popupId) {
         if (ImGui::BeginPopupContextItem(popupId)) {
             if (ImGui::MenuItem(pl.favorite ? "Retirer des favoris" : "Ajouter aux favoris")) {
                 m_library.togglePlaylistFavorite(pl.id);
                 m_library.save();
             }
             if (pl.platform != Platform::Local) {
+                auto fullPl = m_library.getPlaylist(pl.id);
                 ImGui::Separator();
                 bool offline = m_library.offlineMode();
-                if (ImGui::MenuItem("Synchroniser", nullptr, false, !offline && !pl.sourceUrl.empty())) {
+                if (ImGui::MenuItem("Synchroniser", nullptr, false, !offline && fullPl && !fullPl->sourceUrl.empty())) {
                     m_sync.syncPlaylistAsync(pl.id);
                 }
-                if (ImGui::MenuItem("Tout telecharger", nullptr, false, !offline && !pl.tracks.empty())) {
-                    m_sync.queuePlaylistDownload(pl.id, pl.preferVideo);
+                if (ImGui::MenuItem("Tout telecharger", nullptr, false, !offline && pl.trackCount > 0)) {
+                    m_sync.queuePlaylistDownload(pl.id, fullPl ? fullPl->preferVideo : false);
                 }
-                bool autoSync = pl.autoSync, autoDl = pl.autoDownload, prefVid = pl.preferVideo;
-                bool changed = false;
-                if (ImGui::MenuItem("Auto-Sync", nullptr, &autoSync)) changed = true;
-                if (ImGui::MenuItem("Auto-Download", nullptr, &autoDl)) changed = true;
-                if (ImGui::MenuItem("Preferer Video", nullptr, &prefVid)) changed = true;
-                if (changed) {
-                    m_library.setPlaylistOptions(pl.id, autoSync, autoDl, prefVid);
-                    m_library.save();
+                if (fullPl) {
+                    bool autoSync = fullPl->autoSync, autoDl = fullPl->autoDownload, prefVid = fullPl->preferVideo;
+                    bool changed = false;
+                    if (ImGui::MenuItem("Auto-Sync", nullptr, &autoSync)) changed = true;
+                    if (ImGui::MenuItem("Auto-Download", nullptr, &autoDl)) changed = true;
+                    if (ImGui::MenuItem("Preferer Video", nullptr, &prefVid)) changed = true;
+                    if (changed) {
+                        m_library.setPlaylistOptions(pl.id, autoSync, autoDl, prefVid);
+                        m_library.save();
+                    }
                 }
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Audio / dB & EQ")) {
+                auto fullPl = m_library.getPlaylist(pl.id);
                 m_showAudioModal = true;
                 m_audioModalIsPlaylist = true;
                 m_audioModalPlaylistId = pl.id;
                 m_audioModalLabel = "Playlist: " + pl.name;
-                m_audioModalData = pl.audioOverride;
+                if (fullPl) m_audioModalData = fullPl->audioOverride;
             }
             if (ImGui::MenuItem("Renommer")) {
                 m_showRenameModal = true;
@@ -984,7 +988,7 @@ void AppUI::renderSidebar() {
         }
     };
 
-    auto attachPlaylistDnd = [&](const Playlist& pl, bool allowPlatformDrop) {
+    auto attachPlaylistDnd = [&](const PlaylistSummary& pl, bool allowPlatformDrop) {
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
             ImGui::SetDragDropPayload("DND_PLAYLIST", pl.id.c_str(), pl.id.size() + 1);
             ImGui::Text("%s", pl.name.c_str());
@@ -1001,7 +1005,7 @@ void AppUI::renderSidebar() {
         }
     };
 
-    std::vector<Playlist> favPlaylists;
+    std::vector<PlaylistSummary> favPlaylists;
     for (const auto& p : playlists) {
         if (p.favorite) favPlaylists.push_back(p);
     }
@@ -1023,7 +1027,7 @@ void AppUI::renderSidebar() {
             bool selected = (!m_showOfflineOnlyView && !m_showLikedOnlyView && m_selectedPlaylistId == pl.id);
             m_icons.draw("heart_filled", 14.0f, pal.accent);
             ImGui::SameLine();
-            std::string label = pl.name + " (" + std::to_string(pl.tracks.size()) + ")##fav_" + pl.id;
+            std::string label = pl.name + " (" + std::to_string(pl.trackCount) + ")##fav_" + pl.id;
             if (ImGui::Selectable(label.c_str(), selected)) {
                 m_showOfflineOnlyView = false;
                 m_showLikedOnlyView = false;
@@ -1045,7 +1049,7 @@ void AppUI::renderSidebar() {
     const Platform order[] = { Platform::YouTubeMusic, Platform::YouTube, Platform::TikTok, Platform::Local };
 
     for (Platform plat : order) {
-        std::vector<Playlist> group;
+        std::vector<PlaylistSummary> group;
         for (const auto& p : playlists) {
             if (p.platform == plat) group.push_back(p);
         }
@@ -1067,7 +1071,7 @@ void AppUI::renderSidebar() {
                 bool selected = (!m_showOfflineOnlyView && !m_showLikedOnlyView && m_selectedPlaylistId == pl.id);
                 m_icons.draw("playlist", 15.0f, selected ? pal.accent : pal.textMuted);
                 ImGui::SameLine();
-                std::string label = pl.name + " (" + std::to_string(pl.tracks.size()) + ")##" + pl.id;
+                std::string label = pl.name + " (" + std::to_string(pl.trackCount) + ")##" + pl.id;
                 if (ImGui::Selectable(label.c_str(), selected)) {
                     m_showOfflineOnlyView = false;
                     m_showLikedOnlyView = false;
@@ -1293,6 +1297,11 @@ void AppUI::renderPlaylistsTab() {
             bool unavailableOffline = offline && !isDownloaded;
 
             if (colIdx > 0) ImGui::SameLine(0.0f, spacing);
+            if (!ImGui::IsRectVisible(ImVec2(cardW, imgSide + 54.0f))) {
+                ImGui::Dummy(ImVec2(cardW, imgSide + 54.0f));
+                colIdx = (colIdx + 1) % cols;
+                continue;
+            }
             ImGui::BeginGroup();
             ImGui::BeginDisabled(unavailableOffline);
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
@@ -1508,6 +1517,11 @@ void AppUI::renderSearchTab(Platform plat) {
             const Track& t = results[i];
             std::string sid = std::to_string(i);
             if (colIdx > 0) ImGui::SameLine(0.0f, spacing);
+            if (!ImGui::IsRectVisible(ImVec2(cardW, imgSide + 54.0f))) {
+                ImGui::Dummy(ImVec2(cardW, imgSide + 54.0f));
+                colIdx = (colIdx + 1) % cols;
+                continue;
+            }
             ImGui::BeginGroup();
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
             ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);

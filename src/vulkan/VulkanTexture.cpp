@@ -107,7 +107,15 @@ bool VulkanTexture::createFromRGBA(VulkanContext& ctx, const uint8_t* rgba, uint
     }
 
     m_descriptorSet = ImGui_ImplVulkan_AddTexture(m_sampler, m_imageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    return updateRGBA(ctx, rgba, width, height);
+    bool ok = updateRGBA(ctx, rgba, width, height);
+    if (m_stagingBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(ctx.device(), m_stagingBuffer, nullptr);
+        vkFreeMemory(ctx.device(), m_stagingMemory, nullptr);
+        m_stagingBuffer = VK_NULL_HANDLE;
+        m_stagingMemory = VK_NULL_HANDLE;
+        m_stagingSize = 0;
+    }
+    return ok;
 }
 
 bool VulkanTexture::updateRGBA(VulkanContext& ctx, const uint8_t* rgba, uint32_t width, uint32_t height) {

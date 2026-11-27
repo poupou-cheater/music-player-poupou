@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-inline constexpr const char* APP_VERSION = "1.0.0";
+inline constexpr const char* APP_VERSION = "1.4.0";
 inline constexpr const char* APP_GITHUB_REPO = "poupou-cheater/music-player-poupou";
 
 enum class Platform {

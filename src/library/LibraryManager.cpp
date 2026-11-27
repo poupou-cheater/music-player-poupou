@@ -457,6 +457,16 @@ std::vector<Playlist> LibraryManager::playlistsCopy() const {
     return m_playlists;
 }
 
+std::vector<PlaylistSummary> LibraryManager::playlistSummaries() const {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    std::vector<PlaylistSummary> out;
+    out.reserve(m_playlists.size());
+    for (const auto& p : m_playlists) {
+        out.push_back({ p.id, p.name, p.platform, p.favorite, p.tracks.size() });
+    }
+    return out;
+}
+
 std::optional<Playlist> LibraryManager::getPlaylist(const std::string& playlistId) const {
     std::lock_guard<std::mutex> lock(m_mtx);
     for (const auto& p : m_playlists) {
