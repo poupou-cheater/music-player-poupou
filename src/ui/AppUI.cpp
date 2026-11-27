@@ -10,6 +10,7 @@
 #endif
 #include <windows.h>
 #include <commdlg.h>
+#include <shellapi.h>
 #include <imgui.h>
 #include <algorithm>
 #include <cctype>
@@ -60,6 +61,9 @@ AppUI::AppUI(VulkanContext& vk, IconStore& icons, LibraryManager& library, Platf
 AppUI::~AppUI() = default;
 
 TemplatePalette AppUI::activePalette() const {
+    if (m_previewCustomTheme && m_activeTab == MainTab::Settings) {
+        return paletteFromCustom(m_newThemeDraft);
+    }
     auto s = m_library.settings();
     if (s.activeCustomThemeIndex >= 0 && s.activeCustomThemeIndex < static_cast<int>(s.customThemes.size())) {
         return paletteFromCustom(s.customThemes[s.activeCustomThemeIndex]);
@@ -100,8 +104,10 @@ void AppUI::init(GLFWwindow* window) {
         m_selectedPlaylistId = lists.front().id;
     }
 
-    if (!s.offlineMode) m_sync.syncAllAutoPlaylistsAsync();
-    else {
+    if (!s.offlineMode) {
+        m_sync.syncAllAutoPlaylistsAsync();
+        if (s.autoCheckUpdates) m_sync.checkUpdatesAsync();
+    } else {
         auto nowSec = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::system_clock::now().time_since_epoch()
         ).count();
@@ -823,6 +829,19 @@ void AppUI::renderTopBar() {
     }
     ImGui::PopStyleColor();
     drawHoverRect(statusCol);
+
+    if (m_sync.hasUpdateAvailable()) {
+        ImGui::SameLine(0.0f, 6.0f);
+        ImGui::PushStyleColor(ImGuiCol_Text, pal.accent);
+        if (ImGui::Button("MAJ")) {
+            ShellExecuteA(nullptr, "open", m_sync.updateUrl().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }
+        ImGui::PopStyleColor();
+        drawHoverRect(pal.accent);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Nouvelle version v%s disponible (ouvrir GitHub)", m_sync.latestVersion().c_str());
+        }
+    }
 
     ImGui::PopStyleColor(3);
     ImGui::PopStyleVar(2);
@@ -1606,9 +1625,8 @@ void AppUI::renderSettingsTab() {
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Général")) {
-            m_icons.draw("settings", 20.0f, pal.accent);
-            ImGui::SameLine();
-            ImGui::Text("Behavior, Discord & Keybinds");
+            ImGui::Spacing();
+            ImGui::TextColored(pal.accent, "Interface & Affichage");
             ImGui::Separator();
 
             const char* layoutModes[] = { "Auto (largeur < 720px)", "Desktop", "Téléphone (Mobile)" };
@@ -1623,6 +1641,27 @@ void AppUI::renderSettingsTab() {
                 if (ImGui::Checkbox("Bottom bar##ah_bot", &s.autoHideBottomBar)) changed = true;
                 ImGui::Unindent(22.0f);
             }
+            if (ImGui::Checkbox("Vérifier les mises à jour au lancement", &s.autoCheckUpdates)) changed = true;
+            ImGui::SameLine();
+            if (ImGui::Button("Vérifier##chk_upd")) {
+                m_sync.checkUpdatesAsync();
+            }
+            std::string updSt = m_sync.updateStatus();
+            if (!updSt.empty()) {
+                ImGui::SameLine();
+                ImGui::TextColored(m_sync.hasUpdateAvailable() ? pal.accent : pal.textMuted, "%s", updSt.c_str());
+                if (m_sync.hasUpdateAvailable()) {
+                    ImGui::SameLine();
+                    if (ImGui::Button("Ouvrir GitHub##open_upd")) {
+                        ShellExecuteA(nullptr, "open", m_sync.updateUrl().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                    }
+                }
+            }
+
+            ImGui::Spacing();
+            ImGui::TextColored(pal.accent, "Touches Média & Discord");
+            ImGui::Separator();
+
             if (ImGui::Checkbox("Enable Global Media Keys (Play/Pause, Next, Prev)", &s.enableMediaKeys)) {
                 m_mediaKeys.setConfig(s.enableMediaKeys, s.mediaKeysExclusive, s.forceFocusOnMediaKey);
                 changed = true;
@@ -1641,14 +1680,18 @@ void AppUI::renderSettingsTab() {
             }
 
             ImGui::Spacing();
-            ImGui::Text("Keybinds (clic gauche: assigner, clic droit: debind):");
-            auto keybindRow = [&](const char* label, int slot, int& keyCode) {
-                ImGui::Text("%-18s", label);
-                ImGui::SameLine(180.0f);
+            ImGui::TextColored(pal.accent, "Raccourcis Clavier");
+            ImGui::SameLine();
+            ImGui::TextDisabled("(clic gauche: assigner, clic droit: debind)");
+            ImGui::Separator();
+
+            auto keybindCell = [&](const char* label, int slot, int& keyCode) {
+                ImGui::Text("%-14s", label);
+                ImGui::SameLine(130.0f);
                 std::string btnTxt = (m_rebindingSlot == slot)
                     ? "Appuyez..."
                     : (keyCode <= 0 ? "Aucun" : MediaKeys::keyName(keyCode));
-                if (ImGui::Button((btnTxt + "##kb_" + std::to_string(slot)).c_str(), ImVec2(140.0f, 0.0f))) {
+                if (ImGui::Button((btnTxt + "##kb_" + std::to_string(slot)).c_str(), ImVec2(120.0f, 0.0f))) {
                     m_rebindingSlot = slot;
                 }
                 if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
@@ -1657,14 +1700,25 @@ void AppUI::renderSettingsTab() {
                     changed = true;
                 }
             };
-            keybindRow("Play / Pause", 0, s.keyPlayPause);
-            keybindRow("Mute", 1, s.keyMute);
-            keybindRow("Mode Focus", 2, s.keyFullscreen);
-            keybindRow("Fullscreen", 3, s.keyOsFullscreen);
-            keybindRow("Seek -5s", 4, s.keySeekBack);
-            keybindRow("Seek +5s", 5, s.keySeekFwd);
-            keybindRow("Volume +5%", 6, s.keyVolUp);
-            keybindRow("Volume -5%", 7, s.keyVolDown);
+
+            if (ImGui::BeginTable("##KeybindsGrid", 2, ImGuiTableFlags_SizingStretchSame)) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn(); keybindCell("Play / Pause", 0, s.keyPlayPause);
+                ImGui::TableNextColumn(); keybindCell("Seek -5s", 4, s.keySeekBack);
+
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn(); keybindCell("Mute", 1, s.keyMute);
+                ImGui::TableNextColumn(); keybindCell("Seek +5s", 5, s.keySeekFwd);
+
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn(); keybindCell("Mode Focus", 2, s.keyFullscreen);
+                ImGui::TableNextColumn(); keybindCell("Volume +5%", 6, s.keyVolUp);
+
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn(); keybindCell("Fullscreen", 3, s.keyOsFullscreen);
+                ImGui::TableNextColumn(); keybindCell("Volume -5%", 7, s.keyVolDown);
+                ImGui::EndTable();
+            }
 
             ImGui::EndTabItem();
         }
@@ -1830,6 +1884,7 @@ void AppUI::renderSettingsTab() {
                 bool active = (s.activeCustomThemeIndex < 0 && static_cast<int>(s.activeTemplate) == i);
                 if (active) ImGui::PushStyleColor(ImGuiCol_Button, pal.accent);
                 if (ImGui::Button(builtInNames[i])) {
+                    m_previewCustomTheme = false;
                     s.activeCustomThemeIndex = -1;
                     s.activeTemplate = static_cast<GuiTemplate>(i);
                     changed = true;
@@ -1845,6 +1900,7 @@ void AppUI::renderSettingsTab() {
                 bool active = (s.activeCustomThemeIndex == i);
                 if (active) ImGui::PushStyleColor(ImGuiCol_Button, pal.accent);
                 if (ImGui::Button(s.customThemes[i].name.c_str())) {
+                    m_previewCustomTheme = false;
                     s.activeCustomThemeIndex = i;
                     changed = true;
                 }
@@ -1862,23 +1918,36 @@ void AppUI::renderSettingsTab() {
             }
 
             ImGui::Spacing();
-            ImGui::Text("Créer un nouveau thème");
+            ImGui::Text("Créer un nouveau thème (aperçu en temps réel)");
             ImGui::Separator();
             ImGui::SetNextItemWidth(260.0f);
             ImGui::InputText("Nom du thème", m_newThemeName, sizeof(m_newThemeName));
-            ImGui::ColorEdit4("Fond principal", m_newThemeDraft.bgMain.data());
-            ImGui::ColorEdit4("Barre latérale", m_newThemeDraft.bgSidebar.data());
-            ImGui::ColorEdit4("Cartes / Boutons", m_newThemeDraft.bgCard.data());
-            ImGui::ColorEdit4("Couleur Accent", m_newThemeDraft.accent.data());
-            ImGui::ColorEdit4("Accent secondaire", m_newThemeDraft.accentSecondary.data());
-            ImGui::ColorEdit4("Texte principal", m_newThemeDraft.textPrimary.data());
-            ImGui::SliderFloat("Arrondi (px)", &m_newThemeDraft.rounding, 0.0f, 20.0f, "%.0f px");
+            bool draftChanged = false;
+            if (ImGui::ColorEdit4("Fond principal", m_newThemeDraft.bgMain.data())) draftChanged = true;
+            if (ImGui::ColorEdit4("Barre latérale", m_newThemeDraft.bgSidebar.data())) draftChanged = true;
+            if (ImGui::ColorEdit4("Cartes / Boutons", m_newThemeDraft.bgCard.data())) draftChanged = true;
+            if (ImGui::ColorEdit4("Couleur Accent", m_newThemeDraft.accent.data())) draftChanged = true;
+            if (ImGui::ColorEdit4("Accent secondaire", m_newThemeDraft.accentSecondary.data())) draftChanged = true;
+            if (ImGui::ColorEdit4("Texte principal", m_newThemeDraft.textPrimary.data())) draftChanged = true;
+            if (ImGui::SliderFloat("Arrondi (px)", &m_newThemeDraft.rounding, 0.0f, 20.0f, "%.0f px")) draftChanged = true;
+            if (draftChanged) {
+                m_previewCustomTheme = true;
+                applyPaletteStyle(paletteFromCustom(m_newThemeDraft), m_vk);
+            }
             if (ImGui::Button("Créer & Appliquer le thème")) {
                 CustomTheme ct = m_newThemeDraft;
                 ct.name = m_newThemeName[0] ? std::string(m_newThemeName) : "Custom Theme";
                 s.customThemes.push_back(std::move(ct));
                 s.activeCustomThemeIndex = static_cast<int>(s.customThemes.size()) - 1;
+                m_previewCustomTheme = false;
                 changed = true;
+            }
+            if (m_previewCustomTheme) {
+                ImGui::SameLine();
+                if (ImGui::Button("Annuler aperçu")) {
+                    m_previewCustomTheme = false;
+                    applyPaletteStyle(activePalette(), m_vk);
+                }
             }
             ImGui::EndTabItem();
         }
@@ -1930,38 +1999,11 @@ void AppUI::renderStagePanel(bool isFullscreen) {
             m_mobileFocusQueue = !m_mobileFocusQueue;
         }
 
-        if (m_mobileFocusQueue) {
-            ImGui::Separator();
-            ImGui::BeginChild("##MobFocusQ", ImVec2(0.0f, 0.0f), false);
-            if (m_queue.empty()) {
-                ImGui::TextDisabled("File d'attente vide.");
-            } else {
-                for (size_t i = 0; i < m_queue.size(); ++i) {
-                    const auto& q = m_queue[i];
-                    bool isQCur = (m_playingFromQueue && m_queueIndex == static_cast<int>(i));
-                    ImVec2 rowStart = ImGui::GetCursorPos();
-                    if (ImGui::Selectable(("##mfq_" + std::to_string(i)).c_str(), isQCur, ImGuiSelectableFlags_AllowOverlap, ImVec2(0.0f, 52.0f))) {
-                        m_queueIndex = static_cast<int>(i);
-                        m_playingFromQueue = true;
-                        playTrack(q.playlistId, q.track);
-                        break;
-                    }
-                    ImVec2 rowEnd = ImGui::GetCursorPos();
-                    ImGui::SetCursorPos(ImVec2(rowStart.x + 2.0f, rowStart.y + 2.0f));
-                    ImGui::Image(getTrackThumb(q.track), ImVec2(48.0f, 48.0f));
-                    ImGui::SetCursorPos(ImVec2(rowStart.x + 58.0f, rowStart.y + 6.0f));
-                    ImGui::BeginGroup();
-                    ImGui::Text("%s", q.track.title.c_str());
-                    ImGui::TextDisabled("%s", q.track.artist.c_str());
-                    ImGui::EndGroup();
-                    ImGui::SetCursorPos(rowEnd);
-                }
-            }
-            ImGui::EndChild();
-            ImGui::PopStyleVar();
-            ImGui::PopStyleColor(3);
-            return;
-        }
+        float tgtMQ = m_mobileFocusQueue ? 1.0f : 0.0f;
+        float mqStep = ImGui::GetIO().DeltaTime * 5.0f;
+        if (m_mobQueueAnim < tgtMQ) m_mobQueueAnim = std::min(1.0f, m_mobQueueAnim + mqStep);
+        else if (m_mobQueueAnim > tgtMQ) m_mobQueueAnim = std::max(0.0f, m_mobQueueAnim - mqStep);
+        float easedMQ = 1.0f - std::pow(1.0f - m_mobQueueAnim, 3.0f);
 
         float bottomY = std::max(180.0f, totalH - 168.0f);
         float topAreaH = 38.0f;
@@ -2076,6 +2118,41 @@ void AppUI::renderStagePanel(bool isFullscreen) {
             m_library.save();
         }
         ImGui::PopStyleVar();
+
+        if (easedMQ > 0.01f) {
+            float areaTop = 40.0f;
+            float areaH = std::max(1.0f, totalH - areaTop);
+            float offsetY = areaH * (1.0f - easedMQ);
+            ImGui::SetCursorPos(ImVec2(0.0f, areaTop + offsetY));
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, pal.bgMain);
+            ImGui::BeginChild("##MobFocusQ", ImVec2(availW, std::max(1.0f, areaH - offsetY)), true);
+            if (m_queue.empty()) {
+                ImGui::TextDisabled("File d'attente vide.");
+            } else {
+                for (size_t i = 0; i < m_queue.size(); ++i) {
+                    const auto& q = m_queue[i];
+                    bool isQCur = (m_playingFromQueue && m_queueIndex == static_cast<int>(i));
+                    ImVec2 rowStart = ImGui::GetCursorPos();
+                    if (ImGui::Selectable(("##mfq_" + std::to_string(i)).c_str(), isQCur, ImGuiSelectableFlags_AllowOverlap, ImVec2(0.0f, 52.0f))) {
+                        m_queueIndex = static_cast<int>(i);
+                        m_playingFromQueue = true;
+                        playTrack(q.playlistId, q.track);
+                        break;
+                    }
+                    ImVec2 rowEnd = ImGui::GetCursorPos();
+                    ImGui::SetCursorPos(ImVec2(rowStart.x + 2.0f, rowStart.y + 2.0f));
+                    ImGui::Image(getTrackThumb(q.track), ImVec2(48.0f, 48.0f));
+                    ImGui::SetCursorPos(ImVec2(rowStart.x + 58.0f, rowStart.y + 6.0f));
+                    ImGui::BeginGroup();
+                    ImGui::Text("%s", q.track.title.c_str());
+                    ImGui::TextDisabled("%s", q.track.artist.c_str());
+                    ImGui::EndGroup();
+                    ImGui::SetCursorPos(rowEnd);
+                }
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleColor();
+        }
 
         ImGui::PopStyleVar();
         ImGui::PopStyleColor(3);

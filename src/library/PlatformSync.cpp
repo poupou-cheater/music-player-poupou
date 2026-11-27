@@ -162,6 +162,29 @@ void PlatformSync::refreshNetworkStatusAsync() {
     m_fastQueue.push({TaskType::CheckNetwork, "", "", "", Platform::YouTubeMusic, false, 12, nullptr, nullptr});
 }
 
+void PlatformSync::checkUpdatesAsync() {
+    {
+        std::lock_guard<std::mutex> lock(m_updateMutex);
+        m_updateStatus = "Vérification...";
+    }
+    m_fastQueue.push({TaskType::CheckUpdates, "", "", "", Platform::YouTubeMusic, false, 12, nullptr, nullptr});
+}
+
+std::string PlatformSync::latestVersion() const {
+    std::lock_guard<std::mutex> lock(m_updateMutex);
+    return m_latestVersion;
+}
+
+std::string PlatformSync::updateUrl() const {
+    std::lock_guard<std::mutex> lock(m_updateMutex);
+    return m_updateUrl;
+}
+
+std::string PlatformSync::updateStatus() const {
+    std::lock_guard<std::mutex> lock(m_updateMutex);
+    return m_updateStatus;
+}
+
 void PlatformSync::syncPlaylistAsync(const std::string& playlistId) {
     if (m_library.offlineMode()) {
         setStatus("Offline Mode active - sync skipped");
@@ -661,6 +684,63 @@ void PlatformSync::fastWorkerLoop() {
             }
             setStatus("Found " + std::to_string(results.size()) + " results");
             if (task.searchCb) task.searchCb(!results.empty(), results, results.empty() ? "No results found" : "");
+        } else if (task.type == TaskType::CheckUpdates) {
+            HINTERNET hSession = WinHttpOpen(L"StreamPulse/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
+            bool foundUpdate = false;
+            std::string newVer;
+            std::string relUrl = "https://github.com/poupou-cheater/music-player-poupou/releases/latest";
+            std::string status = std::string("À jour (v") + APP_VERSION + ")";
+            if (hSession) {
+                WinHttpSetTimeouts(hSession, 3000, 3000, 4000, 4000);
+                HINTERNET hConnect = WinHttpConnect(hSession, L"api.github.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
+                if (hConnect) {
+                    std::wstring path = L"/repos/poupou-cheater/music-player-poupou/releases/latest";
+                    HINTERNET hReq = WinHttpOpenRequest(hConnect, L"GET", path.c_str(), nullptr, nullptr, nullptr, WINHTTP_FLAG_SECURE);
+                    if (hReq) {
+                        const wchar_t* hdr = L"Accept: application/vnd.github+json\r\n";
+                        if (WinHttpSendRequest(hReq, hdr, static_cast<DWORD>(-1L), nullptr, 0, 0, 0) &&
+                            WinHttpReceiveResponse(hReq, nullptr)) {
+                            DWORD httpCode = 0, sz = sizeof(httpCode);
+                            WinHttpQueryHeaders(hReq, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &httpCode, &sz, nullptr);
+                            std::string body;
+                            char buf[4096];
+                            DWORD read = 0;
+                            while (WinHttpReadData(hReq, buf, sizeof(buf), &read) && read > 0) {
+                                body.append(buf, read);
+                            }
+                            if (httpCode == 200 && !body.empty()) {
+                                try {
+                                    json j = json::parse(body);
+                                    std::string tag = strOr(j, "tag_name");
+                                    if (!tag.empty() && (tag[0] == 'v' || tag[0] == 'V')) tag.erase(0, 1);
+                                    std::string html = strOr(j, "html_url");
+                                    if (!html.empty()) relUrl = html;
+                                    auto parseSemver = [](const std::string& v) {
+                                        std::array<int, 3> p = {0, 0, 0};
+                                        std::sscanf(v.c_str(), "%d.%d.%d", &p[0], &p[1], &p[2]);
+                                        return p;
+                                    };
+                                    if (!tag.empty() && parseSemver(tag) > parseSemver(APP_VERSION)) {
+                                        foundUpdate = true;
+                                        newVer = tag;
+                                        status = "Mise à jour disponible : v" + tag;
+                                    }
+                                } catch (...) {}
+                            }
+                        }
+                        WinHttpCloseHandle(hReq);
+                    }
+                    WinHttpCloseHandle(hConnect);
+                }
+                WinHttpCloseHandle(hSession);
+            }
+            m_updateAvailable.store(foundUpdate);
+            {
+                std::lock_guard<std::mutex> lock(m_updateMutex);
+                m_latestVersion = newVer;
+                m_updateUrl = relUrl;
+                m_updateStatus = status;
+            }
         }
 
         --m_activeTasks;

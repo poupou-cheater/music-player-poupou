@@ -37,6 +37,12 @@ public:
 
     bool isNetworkAvailable() const { return m_networkAvailable.load(); }
     void refreshNetworkStatusAsync();
+    void checkUpdatesAsync();
+
+    bool hasUpdateAvailable() const { return m_updateAvailable.load(); }
+    std::string latestVersion() const;
+    std::string updateUrl() const;
+    std::string updateStatus() const;
 
     void syncPlaylistAsync(const std::string& playlistId);
     void syncAllAutoPlaylistsAsync();
@@ -69,7 +75,8 @@ private:
         CleanupCache,
         DownloadTrack,
         ResolveStream,
-        SearchPlatform
+        SearchPlatform,
+        CheckUpdates
     };
 
     struct Task {
@@ -126,6 +133,11 @@ private:
     std::atomic<bool> m_running{false};
     std::atomic<bool> m_cancelDownloads{false};
     std::atomic<bool> m_networkAvailable{true};
+    std::atomic<bool> m_updateAvailable{false};
+    mutable std::mutex m_updateMutex;
+    std::string m_latestVersion;
+    std::string m_updateUrl = "https://github.com/poupou-cheater/music-player-poupou/releases/latest";
+    std::string m_updateStatus;
     std::atomic<int> m_activeTasks{0};
     std::atomic<uint64_t> m_latestStreamSeq{0};
 

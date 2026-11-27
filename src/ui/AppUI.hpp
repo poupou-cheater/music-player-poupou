@@ -109,6 +109,7 @@ private:
     float m_focusAnim = 0.0f;
     bool m_focusQueueOpen = true;
     bool m_mobileFocusQueue = false;
+    float m_mobQueueAnim = 0.0f;
     float m_focusQueueAnim = 1.0f;
     float m_topBarAnim = 1.0f;
     float m_bottomBarAnim = 1.0f;
@@ -191,5 +192,6 @@ private:
 
     char m_newThemeName[64]{ "Mon Thème" };
     CustomTheme m_newThemeDraft;
+    bool m_previewCustomTheme = false;
     char m_newAudioProfileName[64]{ "Mon Profil Audio" };
 };

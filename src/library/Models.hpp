@@ -5,6 +5,9 @@
 #include <string>
 #include <vector>
 
+inline constexpr const char* APP_VERSION = "1.0.0";
+inline constexpr const char* APP_GITHUB_REPO = "poupou-cheater/music-player-poupou";
+
 enum class Platform {
     YouTubeMusic = 0,
     YouTube,
@@ -203,6 +206,7 @@ struct AppSettings {
     bool autoHideBarsFullscreen = true;
     bool autoHideTopBar = true;
     bool autoHideBottomBar = true;
+    bool autoCheckUpdates = true;
     bool enableMediaKeys = true;
     bool mediaKeysExclusive = true; // Intercept media keys exclusively for StreamPulse
     bool forceFocusOnMediaKey = false; // Bring app to foreground on media key
