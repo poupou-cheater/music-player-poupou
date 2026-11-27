@@ -4,6 +4,7 @@
 #include <GLFW/glfw3native.h>
 #include <windows.h>
 #include <atomic>
+#include <chrono>
 
 static constexpr int HK_PLAY_PAUSE = 1001;
 static constexpr int HK_NEXT = 1002;
@@ -63,10 +64,11 @@ void MediaKeys::updateHotkeys() {
         m_hotkeysRegistered = false;
     }
     if (m_enabled && m_exclusive) {
-        BOOL ok1 = RegisterHotKey(hwnd, HK_PLAY_PAUSE, 0, VK_MEDIA_PLAY_PAUSE);
-        BOOL ok2 = RegisterHotKey(hwnd, HK_NEXT, 0, VK_MEDIA_NEXT_TRACK);
-        BOOL ok3 = RegisterHotKey(hwnd, HK_PREV, 0, VK_MEDIA_PREV_TRACK);
-        BOOL ok4 = RegisterHotKey(hwnd, HK_STOP, 0, VK_MEDIA_STOP);
+        constexpr UINT kNoRepeat = 0x4000; // MOD_NOREPEAT
+        BOOL ok1 = RegisterHotKey(hwnd, HK_PLAY_PAUSE, kNoRepeat, VK_MEDIA_PLAY_PAUSE);
+        BOOL ok2 = RegisterHotKey(hwnd, HK_NEXT, kNoRepeat, VK_MEDIA_NEXT_TRACK);
+        BOOL ok3 = RegisterHotKey(hwnd, HK_PREV, kNoRepeat, VK_MEDIA_PREV_TRACK);
+        BOOL ok4 = RegisterHotKey(hwnd, HK_STOP, kNoRepeat, VK_MEDIA_STOP);
         m_hotkeysRegistered = (ok1 || ok2 || ok3 || ok4);
     }
 }
@@ -89,7 +91,7 @@ MediaAction MediaKeys::pollGlobalMediaKey() {
     else if (hk == HK_PREV) act = MediaAction::Prev;
     else if (hk == HK_STOP) act = MediaAction::Stop;
 
-    if (act == MediaAction::None && (!m_exclusive || !m_hotkeysRegistered || m_forceFocus)) {
+    if (act == MediaAction::None && !m_hotkeysRegistered) {
         bool pp = (GetAsyncKeyState(VK_MEDIA_PLAY_PAUSE) & 0x8000) != 0;
         bool nx = (GetAsyncKeyState(VK_MEDIA_NEXT_TRACK) & 0x8000) != 0;
         bool pv = (GetAsyncKeyState(VK_MEDIA_PREV_TRACK) & 0x8000) != 0;
@@ -104,6 +106,15 @@ MediaAction MediaKeys::pollGlobalMediaKey() {
         m_prevNext = nx;
         m_prevPrev = pv;
         m_prevStop = st;
+    }
+
+    if (act != MediaAction::None) {
+        static auto s_lastTrigger = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - s_lastTrigger).count() < 220) {
+            return MediaAction::None;
+        }
+        s_lastTrigger = now;
     }
 
     return act;
