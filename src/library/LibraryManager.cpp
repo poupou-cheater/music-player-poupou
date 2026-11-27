@@ -179,6 +179,7 @@ static void to_json(json& j, const AppSettings& s) {
         {"shuffle", s.shuffle},
         {"repeatMode", s.repeatMode},
         {"viewMode", s.viewMode},
+        {"uiLayoutMode", s.uiLayoutMode},
         {"uiScale", s.uiScale},
         {"selectedPlaylistId", s.selectedPlaylistId},
         {"winX", s.winX},
@@ -229,6 +230,7 @@ static void from_json(const json& j, AppSettings& s) {
     s.shuffle = j.value("shuffle", false);
     s.repeatMode = j.value("repeatMode", j.value("repeat", false) ? 2 : 0);
     s.viewMode = j.value("viewMode", 0);
+    s.uiLayoutMode = j.value("uiLayoutMode", 0);
     s.uiScale = j.value("uiScale", 1.0f);
     s.selectedPlaylistId = j.value("selectedPlaylistId", "");
     s.winX = j.value("winX", -1);

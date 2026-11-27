@@ -67,6 +67,14 @@ TemplatePalette AppUI::activePalette() const {
     return getTemplatePalette(s.activeTemplate);
 }
 
+bool AppUI::isMobileLayout() const {
+    auto s = m_library.settings();
+    if (s.uiLayoutMode == 2) return true;
+    if (s.uiLayoutMode == 1) return false;
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    return vp && vp->WorkSize.x < 720.0f;
+}
+
 void AppUI::init(GLFWwindow* window) {
     m_window = window;
     auto s = m_library.settings();
@@ -518,9 +526,10 @@ void AppUI::render() {
     ImGui::PopStyleVar();
 
     auto settings = m_library.settings();
+    bool mobile = isMobileLayout();
     bool idleHide = m_fullscreenMode && settings.autoHideBarsFullscreen && (m_idleSeconds >= 3.0);
     bool hideTopBar = idleHide && settings.autoHideTopBar;
-    bool hideBottomBar = idleHide && settings.autoHideBottomBar;
+    bool hideBottomBar = (idleHide && settings.autoHideBottomBar) || (mobile && m_fullscreenMode);
 
     float barStep = ImGui::GetIO().DeltaTime * 5.0f;
     auto stepAnim = [&](float& val, bool hidden) {
@@ -578,38 +587,44 @@ void AppUI::render() {
         ImGui::EndChild();
     } else if (m_activeTab == MainTab::Playlists) {
         float winW = ImGui::GetContentRegionAvail().x;
-        float sidebarW = std::clamp(winW * 0.17f, 175.0f, 250.0f);
-        float fullStageW = std::clamp(winW * 0.24f, 240.0f, 380.0f);
-        float stageW = fullStageW * easedStage;
-        float gap = (stageW >= 4.0f) ? 18.0f : 10.0f;
-        float centerW = winW - sidebarW - stageW - gap;
-        if (centerW < 280.0f) centerW = 280.0f;
-
-        ImGui::BeginChild("##Sidebar", ImVec2(sidebarW, contentHeight), true,
-                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        renderSidebar();
-        ImGui::EndChild();
-
-        ImGui::SameLine();
-
-        ImGui::BeginChild("##CenterMain", ImVec2(centerW, contentHeight), true);
-        renderPlaylistsTab();
-        ImGui::EndChild();
-
-        if (stageW >= 4.0f) {
-            ImGui::SameLine();
-            ImGui::BeginChild("##StagePanel", ImVec2(0.0f, contentHeight), true,
-                              ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-            renderStagePanel(false);
+        if (mobile) {
+            ImGui::BeginChild("##CenterMain", ImVec2(winW, contentHeight), true);
+            renderPlaylistsTab();
             ImGui::EndChild();
+        } else {
+            float sidebarW = std::clamp(winW * 0.17f, 175.0f, 250.0f);
+            float fullStageW = std::clamp(winW * 0.24f, 240.0f, 380.0f);
+            float stageW = fullStageW * easedStage;
+            float gap = (stageW >= 4.0f) ? 18.0f : 10.0f;
+            float centerW = winW - sidebarW - stageW - gap;
+            if (centerW < 280.0f) centerW = 280.0f;
+
+            ImGui::BeginChild("##Sidebar", ImVec2(sidebarW, contentHeight), true,
+                              ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+            renderSidebar();
+            ImGui::EndChild();
+
+            ImGui::SameLine();
+
+            ImGui::BeginChild("##CenterMain", ImVec2(centerW, contentHeight), true);
+            renderPlaylistsTab();
+            ImGui::EndChild();
+
+            if (stageW >= 4.0f) {
+                ImGui::SameLine();
+                ImGui::BeginChild("##StagePanel", ImVec2(0.0f, contentHeight), true,
+                                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+                renderStagePanel(false);
+                ImGui::EndChild();
+            }
         }
     } else {
         float winW = ImGui::GetContentRegionAvail().x;
-        float fullStageW = std::clamp(winW * 0.23f, 230.0f, 360.0f);
+        float fullStageW = mobile ? 0.0f : std::clamp(winW * 0.23f, 230.0f, 360.0f);
         float stageW = fullStageW * easedStage;
         float gap = (stageW >= 4.0f) ? 10.0f : 0.0f;
         float centerW = winW - stageW - gap;
-        if (centerW < 300.0f) centerW = 300.0f;
+        if (centerW < 220.0f) centerW = 220.0f;
 
         ImGui::BeginChild("##TabMain", ImVec2(centerW, contentHeight), true);
         switch (m_activeTab) {
@@ -623,7 +638,7 @@ void AppUI::render() {
         }
         ImGui::EndChild();
 
-        if (stageW >= 4.0f) {
+        if (!mobile && stageW >= 4.0f) {
             ImGui::SameLine();
             ImGui::BeginChild("##StagePanel", ImVec2(0.0f, contentHeight), true,
                               ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -1596,6 +1611,10 @@ void AppUI::renderSettingsTab() {
             ImGui::Text("Behavior, Discord & Keybinds");
             ImGui::Separator();
 
+            const char* layoutModes[] = { "Auto (largeur < 720px)", "Desktop", "Téléphone (Mobile)" };
+            ImGui::SetNextItemWidth(240.0f);
+            if (ImGui::Combo("Mode d'interface", &s.uiLayoutMode, layoutModes, 3)) changed = true;
+
             if (ImGui::Checkbox("Auto-hide bars after 3s in Focus Mode", &s.autoHideBarsFullscreen)) changed = true;
             if (s.autoHideBarsFullscreen) {
                 ImGui::Indent(22.0f);
@@ -1895,6 +1914,173 @@ void AppUI::renderStagePanel(bool isFullscreen) {
 
     float availW = ImGui::GetContentRegionAvail().x;
     float totalH = ImGui::GetContentRegionAvail().y;
+
+    if (isFullscreen && isMobileLayout()) {
+        // Mobile Phone Focus Player UI
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.12f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.22f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 18.0f);
+
+        if (ImGui::Button("v##mob_close", ImVec2(32.0f, 32.0f))) {
+            m_fullscreenMode = false;
+        }
+        ImGui::SameLine(std::max(60.0f, availW - 36.0f));
+        if (m_icons.button("##mob_qbtn", "queue", 20.0f, m_mobileFocusQueue ? pal.accent : pal.textPrimary)) {
+            m_mobileFocusQueue = !m_mobileFocusQueue;
+        }
+
+        if (m_mobileFocusQueue) {
+            ImGui::Separator();
+            ImGui::BeginChild("##MobFocusQ", ImVec2(0.0f, 0.0f), false);
+            if (m_queue.empty()) {
+                ImGui::TextDisabled("File d'attente vide.");
+            } else {
+                for (size_t i = 0; i < m_queue.size(); ++i) {
+                    const auto& q = m_queue[i];
+                    bool isQCur = (m_playingFromQueue && m_queueIndex == static_cast<int>(i));
+                    ImVec2 rowStart = ImGui::GetCursorPos();
+                    if (ImGui::Selectable(("##mfq_" + std::to_string(i)).c_str(), isQCur, ImGuiSelectableFlags_AllowOverlap, ImVec2(0.0f, 52.0f))) {
+                        m_queueIndex = static_cast<int>(i);
+                        m_playingFromQueue = true;
+                        playTrack(q.playlistId, q.track);
+                        break;
+                    }
+                    ImVec2 rowEnd = ImGui::GetCursorPos();
+                    ImGui::SetCursorPos(ImVec2(rowStart.x + 2.0f, rowStart.y + 2.0f));
+                    ImGui::Image(getTrackThumb(q.track), ImVec2(48.0f, 48.0f));
+                    ImGui::SetCursorPos(ImVec2(rowStart.x + 58.0f, rowStart.y + 6.0f));
+                    ImGui::BeginGroup();
+                    ImGui::Text("%s", q.track.title.c_str());
+                    ImGui::TextDisabled("%s", q.track.artist.c_str());
+                    ImGui::EndGroup();
+                    ImGui::SetCursorPos(rowEnd);
+                }
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor(3);
+            return;
+        }
+
+        float bottomY = std::max(180.0f, totalH - 168.0f);
+        float topAreaH = 38.0f;
+        float mediaMaxH = std::max(140.0f, bottomY - topAreaH - 10.0f);
+        float mediaMaxW = std::max(140.0f, availW - 8.0f);
+        auto drawMobMedia = [&](ImTextureID texId, uint32_t texW, uint32_t texH) {
+            float aspect = (texW > 0 && texH > 0) ? (static_cast<float>(texW) / static_cast<float>(texH)) : 1.0f;
+            float drawW = mediaMaxW;
+            float drawH = drawW / aspect;
+            if (drawH > mediaMaxH) { drawH = mediaMaxH; drawW = drawH * aspect; }
+            ImGui::SetCursorPosX((availW - drawW) * 0.5f);
+            ImGui::SetCursorPosY(topAreaH + (mediaMaxH - drawH) * 0.5f);
+            ImGui::Image(texId, ImVec2(drawW, drawH));
+        };
+
+        if (m_player.hasVideo() && m_videoTexture.isValid()) {
+            drawMobMedia(m_videoTexture.imguiId(), m_videoTexture.width(), m_videoTexture.height());
+        } else if (m_coverTexture.isValid()) {
+            drawMobMedia(m_coverTexture.imguiId(), m_coverTexture.width(), m_coverTexture.height());
+        } else {
+            drawMobMedia(m_defaultCoverTexture.imguiId(), m_defaultCoverTexture.width(), m_defaultCoverTexture.height());
+        }
+        if (ImGui::BeginPopupContextItem("##stage_media_ctx")) {
+            if (ImGui::MenuItem("Arrêter la lecture")) {
+                m_player.stop();
+                m_hasCurrentTrack = false;
+                m_currentTrack = Track{};
+                m_currentPlaylistId.clear();
+                m_playbackNotice.clear();
+                m_fullscreenMode = false;
+            }
+            ImGui::EndPopup();
+        }
+
+        float padX = 12.0f;
+        float innerW = std::max(120.0f, availW - padX * 2.0f);
+
+        ImGui::SetCursorPos(ImVec2(padX, bottomY));
+        ImGui::SetWindowFontScale(1.22f);
+        ImGui::Text("%s", m_hasCurrentTrack ? m_currentTrack.title.c_str() : "Aucune lecture");
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::SetCursorPosX(padX);
+        ImGui::TextDisabled("%s", m_hasCurrentTrack ? m_currentTrack.artist.c_str() : "");
+
+        // Seek bar
+        double pos = m_player.positionSeconds();
+        double dur = m_player.durationSeconds();
+        float frac = (dur > 0.1) ? std::clamp(static_cast<float>(pos / dur), 0.0f, 1.0f) : 0.0f;
+        ImGui::SetCursorPos(ImVec2(padX, bottomY + 58.0f));
+        ImVec2 seekMin = ImGui::GetCursorScreenPos();
+        ImGui::InvisibleButton("##MobSeek", ImVec2(innerW, 16.0f));
+        bool sAct = ImGui::IsItemActive();
+        if ((sAct || ImGui::IsItemClicked()) && dur > 0.1) {
+            float nf = std::clamp((ImGui::GetIO().MousePos.x - seekMin.x) / std::max(1.0f, innerW), 0.0f, 1.0f);
+            m_player.seek(static_cast<double>(nf) * dur);
+            frac = nf;
+        }
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        float sy = seekMin.y + 8.0f;
+        dl->AddRectFilled(ImVec2(seekMin.x, sy - 1.5f), ImVec2(seekMin.x + innerW, sy + 1.5f), ImGui::GetColorU32(ImVec4(1, 1, 1, 0.22f)));
+        dl->AddRectFilled(ImVec2(seekMin.x, sy - 1.5f), ImVec2(seekMin.x + innerW * frac, sy + 1.5f), ImGui::GetColorU32(pal.accent));
+        dl->AddCircleFilled(ImVec2(seekMin.x + innerW * frac, sy), sAct ? 7.0f : 5.5f, ImGui::GetColorU32(pal.accent));
+
+        ImGui::SetCursorPos(ImVec2(padX, bottomY + 76.0f));
+        ImGui::TextDisabled("%s", formatTime(pos).c_str());
+        std::string durStr = dur > 0.1 ? formatTime(dur) : "--:--";
+        float durW = ImGui::CalcTextSize(durStr.c_str()).x;
+        ImGui::SetCursorPos(ImVec2(padX + innerW - durW, bottomY + 76.0f));
+        ImGui::TextDisabled("%s", durStr.c_str());
+
+        // 5 transport buttons with equal padding between screen edges and between every button
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+        float ctrlCenterY = bottomY + 130.0f;
+        float g = std::max(8.0f, (availW - 152.0f) / 6.0f);
+        float shufX = g;
+        float prevX = shufX + 22.0f + g;
+        float playX = prevX + 28.0f + g;
+        float nextX = playX + 52.0f + g;
+        float repX  = nextX + 28.0f + g;
+
+        ImGui::SetCursorPos(ImVec2(shufX, ctrlCenterY - 11.0f));
+        if (m_icons.button("##mob_shuf", "shuffle", 22.0f, m_shuffle ? pal.accent : pal.textMuted)) {
+            m_shuffle = !m_shuffle;
+            auto st = m_library.settings();
+            st.shuffle = m_shuffle;
+            m_library.updateSettings(st);
+            m_library.save();
+        }
+
+        ImGui::SetCursorPos(ImVec2(prevX, ctrlCenterY - 14.0f));
+        if (m_icons.button("##mob_prev", "prev", 28.0f, pal.textPrimary)) playPrev();
+
+        ImGui::SetCursorPos(ImVec2(playX, ctrlCenterY - 26.0f));
+        ImVec2 circleTopLeft = ImGui::GetCursorScreenPos();
+        dl->AddCircleFilled(ImVec2(circleTopLeft.x + 26.0f, circleTopLeft.y + 26.0f), 26.0f, ImGui::GetColorU32(pal.accent));
+        ImGui::SetCursorPos(ImVec2(playX + 12.0f, ctrlCenterY - 14.0f));
+        if (m_icons.button("##mob_play", m_player.isPlaying() ? "pause" : "play", 28.0f, ImVec4(0.05f, 0.05f, 0.07f, 1.0f))) {
+            if (m_player.isOpen()) m_player.togglePlayPause();
+        }
+
+        ImGui::SetCursorPos(ImVec2(nextX, ctrlCenterY - 14.0f));
+        if (m_icons.button("##mob_next", "next", 28.0f, pal.textPrimary)) playNext();
+
+        ImGui::SetCursorPos(ImVec2(repX, ctrlCenterY - 11.0f));
+        const char* repIcon = (m_repeatMode == 0) ? "repeat" : (m_repeatMode == 1 ? "repeat_one" : "repeat_all");
+        ImVec4 repCol = (m_repeatMode == 0) ? pal.textMuted : (m_repeatMode == 1 ? pal.accentSecondary : pal.accent);
+        if (m_icons.button("##mob_rep", repIcon, 22.0f, repCol)) {
+            m_repeatMode = (m_repeatMode == 0) ? 2 : (m_repeatMode == 2 ? 1 : 0);
+            auto st = m_library.settings();
+            st.repeatMode = m_repeatMode;
+            m_library.updateSettings(st);
+            m_library.save();
+        }
+        ImGui::PopStyleVar();
+
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(3);
+        return;
+    }
 
     float easedFQ = 0.0f;
     if (isFullscreen) {

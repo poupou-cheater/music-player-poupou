@@ -180,6 +180,7 @@ struct AppSettings {
     bool shuffle = false;
     int repeatMode = 0; // 0 = None, 1 = Repeat Same, 2 = Repeat Playlist/Queue
     int viewMode = 0; // 0 = Liste, 1 = Grandes Cartes, 2 = Compact
+    int uiLayoutMode = 0; // 0 = Auto (selon largeur), 1 = Desktop, 2 = Téléphone (Mobile)
     float uiScale = 1.0f; // 0.75 .. 1.60 (Ctrl + / -)
     std::string selectedPlaylistId;
     int winX = -1;

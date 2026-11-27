@@ -62,6 +62,7 @@ private:
     void renderAudioOverrideModal();
     void applyAudioForTrack(const std::string& playlistId, const Track& track);
     TemplatePalette activePalette() const;
+    bool isMobileLayout() const;
 
     void handleShortcuts();
     void playTrack(const std::string& playlistId, const Track& track);
@@ -107,6 +108,7 @@ private:
     float m_stageAnim = 0.0f;
     float m_focusAnim = 0.0f;
     bool m_focusQueueOpen = true;
+    bool m_mobileFocusQueue = false;
     float m_focusQueueAnim = 1.0f;
     float m_topBarAnim = 1.0f;
     float m_bottomBarAnim = 1.0f;

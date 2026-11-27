@@ -179,17 +179,13 @@ int main() {
     AppUI ui(vk, icons, library, sync, player, stats, discord, mediaKeys);
     ui.init(window);
 
+    glfwSetWindowSizeLimits(window, 340, 480, GLFW_DONT_CARE, GLFW_DONT_CARE);
     auto lastTime = std::chrono::steady_clock::now();
 
-    while (!glfwWindowShouldClose(window)) {
-        glfwPollEvents();
-
+    auto tickFrame = [&]() {
         int fbW = 0, fbH = 0;
         glfwGetFramebufferSize(window, &fbW, &fbH);
-        if (fbW == 0 || fbH == 0) {
-            glfwWaitEvents();
-            continue;
-        }
+        if (fbW == 0 || fbH == 0) return;
 
         auto now = std::chrono::steady_clock::now();
         double dt = std::chrono::duration<double>(now - lastTime).count();
@@ -210,6 +206,26 @@ int main() {
             vk.renderFrame(drawData);
             vk.presentFrame();
         }
+    };
+
+    glfwSetWindowUserPointer(window, &tickFrame);
+    glfwSetWindowRefreshCallback(window, [](GLFWwindow* w) {
+        if (auto* fn = static_cast<decltype(tickFrame)*>(glfwGetWindowUserPointer(w))) {
+            (*fn)();
+        }
+    });
+
+    while (!glfwWindowShouldClose(window)) {
+        glfwPollEvents();
+
+        int fbW = 0, fbH = 0;
+        glfwGetFramebufferSize(window, &fbW, &fbH);
+        if (fbW == 0 || fbH == 0) {
+            glfwWaitEvents();
+            continue;
+        }
+
+        tickFrame();
     }
 
     // Save exact OS window position, size, monitor index, maximized, and OS fullscreen state on exit
@@ -238,7 +254,7 @@ int main() {
             }
         }
 
-        if (!st.winMaximized && !st.winOsFullscreen && ww >= 640 && wh >= 480) {
+        if (!st.winMaximized && !st.winOsFullscreen && ww >= 340 && wh >= 480) {
             st.winX = wx;
             st.winY = wy;
             st.winW = ww;
