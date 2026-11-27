@@ -566,8 +566,8 @@ void PlatformSync::fastWorkerLoop() {
                     if (task.streamCb) task.streamCb(false, "", "Could not load audio stream");
                 }
             } else {
-                // Video direct stream: force progressive HTTP MP4 (no m3u8 manifest)
-                std::string fmt = "22[protocol^=http]/18[protocol^=http]/best[ext=mp4][protocol^=http]/best[ext=mp4]/best";
+                // Video direct stream: try progressive HTTP MP4 first, fallback to fast cache/stream/<id>.mp4
+                std::string fmt = "18/22/best[ext=mp4][protocol^=http]/best[ext=mp4]";
                 int code = -1;
                 std::string out = runYtDlp("-g --no-warnings -f \"" + fmt + "\" \"" + task.url + "\"", code);
                 std::istringstream iss(out);
@@ -585,8 +585,26 @@ void PlatformSync::fastWorkerLoop() {
                     setStatus("Streaming video direct (Ad-Free)");
                     if (task.streamCb) task.streamCb(true, streamUrl, "");
                 } else {
-                    setStatus("Video stream failed");
-                    if (task.streamCb) task.streamCb(false, "", "Could not resolve direct video stream");
+                    std::string safeId = LibraryManager::sanitizeId(task.trackId.empty() ? "ytv" : task.trackId);
+                    std::string cacheFile = "cache/stream/" + safeId + ".mp4";
+                    if (!fs::exists(cacheFile)) {
+                        std::string ff = ffmpegArg();
+                        std::string vFmt = "bv*[ext=mp4]+ba[ext=m4a]/18/b[ext=mp4]/best";
+                        runYtDlp(ff + "--force-overwrites --no-part --no-warnings -f \"" + vFmt + "\" " +
+                                 (ff.empty() ? "" : "--merge-output-format mp4 ") +
+                                 "-o \"" + cacheFile + "\" \"" + task.url + "\"", code);
+                    }
+                    if (fs::exists(cacheFile) && fs::file_size(cacheFile) > 1024) {
+                        {
+                            std::lock_guard<std::mutex> lock(m_streamCacheMutex);
+                            m_streamCache[cacheKey] = cacheFile;
+                        }
+                        setStatus("Playing video (Ad-Free)");
+                        if (task.streamCb) task.streamCb(true, cacheFile, "");
+                    } else {
+                        setStatus("Video stream failed");
+                        if (task.streamCb) task.streamCb(false, "", "Could not resolve direct video stream");
+                    }
                 }
             }
         } else if (task.type == TaskType::SearchPlatform) {
