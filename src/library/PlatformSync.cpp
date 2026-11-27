@@ -302,7 +302,8 @@ void PlatformSync::resolveDirectStreamAsync(const Track& track, StreamResolvedCb
         if (cb) cb(false, "", "Offline Mode is enabled");
         return;
     }
-    m_fastQueue.push({TaskType::ResolveStream, "", track.id, track.sourceUrl, track.platform, track.isVideo, 12, std::move(cb), nullptr});
+    uint64_t seq = cb ? ++m_latestStreamSeq : 0;
+    m_fastQueue.push({TaskType::ResolveStream, "", track.id, track.sourceUrl, track.platform, track.isVideo, 12, std::move(cb), nullptr, seq});
 }
 
 void PlatformSync::searchPlatformAsync(Platform platform, const std::string& queryOrUrl, int limit, SearchCb cb) {
@@ -390,7 +391,8 @@ bool PlatformSync::downloadFileWinHttp(const std::string& url, const std::string
 }
 
 std::string PlatformSync::runYtDlp(const std::string& args, int& exitCode,
-                                   const std::function<void(const std::string& line)>& onLine) {
+                                   const std::function<void(const std::string& line)>& onLine,
+                                   int timeoutMs) {
     exitCode = -1;
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
@@ -432,7 +434,17 @@ std::string PlatformSync::runYtDlp(const std::string& args, int& exitCode,
     std::string lineBuf;
     char buf[2048];
     DWORD bytesRead = 0;
+    auto startTick = std::chrono::steady_clock::now();
+    bool timedOut = false;
     while (m_running.load()) {
+        if (timeoutMs > 0) {
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startTick).count();
+            if (elapsed > timeoutMs) {
+                timedOut = true;
+                TerminateProcess(pi.hProcess, 1);
+                break;
+            }
+        }
         DWORD avail = 0;
         if (!PeekNamedPipe(readPipe, nullptr, 0, nullptr, &avail, nullptr)) break;
         if (avail == 0) {
@@ -455,7 +467,7 @@ std::string PlatformSync::runYtDlp(const std::string& args, int& exitCode,
     }
     CloseHandle(readPipe);
 
-    if (m_running.load()) WaitForSingleObject(pi.hProcess, 2000);
+    if (m_running.load() && !timedOut) WaitForSingleObject(pi.hProcess, 1500);
     {
         std::lock_guard<std::mutex> lock(m_procMutex);
         m_activeProcesses.erase(
@@ -489,6 +501,10 @@ void PlatformSync::fastWorkerLoop() {
             m_networkAvailable.store(online);
             setStatus(online ? "Online - Ready" : "No network (Offline ready)");
         } else if (task.type == TaskType::ResolveStream) {
+            if (task.seq != 0 && task.seq != m_latestStreamSeq.load()) {
+                --m_activeTasks;
+                continue; // Skip stale play request
+            }
             setStatus("Loading stream...");
             std::string cacheKey = task.trackId + (task.asVideo ? "_v" : "_a");
             {
@@ -519,13 +535,13 @@ void PlatformSync::fastWorkerLoop() {
                     if (isTikTokPhoto) {
                         runYtDlp(ff + "--force-overwrites --no-part --no-warnings -f \"bestaudio/best\" " +
                                  (ff.empty() ? "" : "-x --audio-format m4a ") +
-                                 "-o \"" + outTmpl + "\" \"" + task.url + "\"", code);
+                                 "-o \"" + outTmpl + "\" \"" + task.url + "\"", code, nullptr, 15000);
                     } else {
                         runYtDlp(ff + "--force-overwrites --no-part --no-warnings -f \"best[ext=mp4]/best\" -o \"" +
-                                 outTmpl + "\" \"" + task.url + "\"", code);
+                                 outTmpl + "\" \"" + task.url + "\"", code, nullptr, 15000);
                         if (code != 0) {
                             runYtDlp(ff + "--force-overwrites --no-part --no-warnings -f \"best\" -o \"" +
-                                     outTmpl + "\" \"" + task.url + "\"", code);
+                                     outTmpl + "\" \"" + task.url + "\"", code, nullptr, 15000);
                         }
                     }
                     for (const char* ext : { "mp4", "m4a", "mp3", "webm" }) {
@@ -545,16 +561,15 @@ void PlatformSync::fastWorkerLoop() {
                     if (task.streamCb) task.streamCb(false, "", "Could not load TikTok media");
                 }
             } else if (!task.asVideo) {
-                // Fast & 100% reliable audio stream via stream cache (~0.5s for 3MB m4a, instant seek, zero HTTP 403)
                 std::string cacheFile = "cache/stream/" + LibraryManager::sanitizeId(task.trackId.empty() ? "yt" : task.trackId) + ".m4a";
                 if (!fs::exists(cacheFile)) {
                     std::string ff = ffmpegArg();
                     int code = -1;
                     runYtDlp(ff + "--no-part --no-warnings -f \"140/bestaudio[ext=m4a]/bestaudio/18/best\" " +
                              (ff.empty() ? "" : "-x --audio-format m4a ") +
-                             "-o \"" + cacheFile + "\" \"" + task.url + "\"", code);
+                             "-o \"" + cacheFile + "\" \"" + task.url + "\"", code, nullptr, 15000);
                 }
-                if (fs::exists(cacheFile)) {
+                if (fs::exists(cacheFile) && fs::file_size(cacheFile) > 1024) {
                     {
                         std::lock_guard<std::mutex> lock(m_streamCacheMutex);
                         m_streamCache[cacheKey] = cacheFile;
@@ -563,48 +578,30 @@ void PlatformSync::fastWorkerLoop() {
                     if (task.streamCb) task.streamCb(true, cacheFile, "");
                 } else {
                     setStatus("Stream failed");
-                    if (task.streamCb) task.streamCb(false, "", "Could not load audio stream");
+                    if (task.streamCb) task.streamCb(false, "", "Timeout ou flux indisponible");
                 }
             } else {
-                // Video direct stream: try progressive HTTP MP4 first, fallback to fast cache/stream/<id>.mp4
-                std::string fmt = "18/22/best[ext=mp4][protocol^=http]/best[ext=mp4]";
-                int code = -1;
-                std::string out = runYtDlp("-g --no-warnings -f \"" + fmt + "\" \"" + task.url + "\"", code);
-                std::istringstream iss(out);
-                std::string streamUrl;
-                while (std::getline(iss, streamUrl)) {
-                    if (!streamUrl.empty() && streamUrl.back() == '\r') streamUrl.pop_back();
-                    if (streamUrl.rfind("http", 0) == 0 && streamUrl.find(".m3u8") == std::string::npos) break;
-                    streamUrl.clear();
+                // Single fast call for 720p/360p MP4 video stream cache
+                std::string safeId = LibraryManager::sanitizeId(task.trackId.empty() ? "ytv" : task.trackId);
+                std::string cacheFile = "cache/stream/" + safeId + ".mp4";
+                if (!fs::exists(cacheFile)) {
+                    std::string ff = ffmpegArg();
+                    int code = -1;
+                    std::string vFmt = "22/18/best[ext=mp4][height<=720]/bv*[ext=mp4][height<=720]+ba[ext=m4a]/best[height<=720]/best";
+                    runYtDlp(ff + "--force-overwrites --no-part --no-warnings -f \"" + vFmt + "\" " +
+                             (ff.empty() ? "" : "--merge-output-format mp4 ") +
+                             "-o \"" + cacheFile + "\" \"" + task.url + "\"", code, nullptr, 20000);
                 }
-                if (code == 0 && !streamUrl.empty()) {
+                if (fs::exists(cacheFile) && fs::file_size(cacheFile) > 1024) {
                     {
                         std::lock_guard<std::mutex> lock(m_streamCacheMutex);
-                        m_streamCache[cacheKey] = streamUrl;
+                        m_streamCache[cacheKey] = cacheFile;
                     }
-                    setStatus("Streaming video direct (Ad-Free)");
-                    if (task.streamCb) task.streamCb(true, streamUrl, "");
+                    setStatus("Playing video (Ad-Free)");
+                    if (task.streamCb) task.streamCb(true, cacheFile, "");
                 } else {
-                    std::string safeId = LibraryManager::sanitizeId(task.trackId.empty() ? "ytv" : task.trackId);
-                    std::string cacheFile = "cache/stream/" + safeId + ".mp4";
-                    if (!fs::exists(cacheFile)) {
-                        std::string ff = ffmpegArg();
-                        std::string vFmt = "bv*[ext=mp4]+ba[ext=m4a]/18/b[ext=mp4]/best";
-                        runYtDlp(ff + "--force-overwrites --no-part --no-warnings -f \"" + vFmt + "\" " +
-                                 (ff.empty() ? "" : "--merge-output-format mp4 ") +
-                                 "-o \"" + cacheFile + "\" \"" + task.url + "\"", code);
-                    }
-                    if (fs::exists(cacheFile) && fs::file_size(cacheFile) > 1024) {
-                        {
-                            std::lock_guard<std::mutex> lock(m_streamCacheMutex);
-                            m_streamCache[cacheKey] = cacheFile;
-                        }
-                        setStatus("Playing video (Ad-Free)");
-                        if (task.streamCb) task.streamCb(true, cacheFile, "");
-                    } else {
-                        setStatus("Video stream failed");
-                        if (task.streamCb) task.streamCb(false, "", "Could not resolve direct video stream");
-                    }
+                    setStatus("Video stream failed");
+                    if (task.streamCb) task.streamCb(false, "", "Timeout ou vidéo indisponible");
                 }
             }
         } else if (task.type == TaskType::SearchPlatform) {

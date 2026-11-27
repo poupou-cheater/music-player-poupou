@@ -82,6 +82,7 @@ private:
         int searchLimit = 12;
         StreamResolvedCb streamCb;
         SearchCb searchCb;
+        uint64_t seq = 0;
     };
 
     struct TaskQueue {
@@ -109,7 +110,8 @@ private:
     bool checkNetworkWinHttp();
     bool downloadFileWinHttp(const std::string& url, const std::string& destPath);
     std::string runYtDlp(const std::string& args, int& exitCode,
-                         const std::function<void(const std::string& line)>& onLine = nullptr);
+                         const std::function<void(const std::string& line)>& onLine = nullptr,
+                         int timeoutMs = 0);
     void setStatus(const std::string& msg);
     void updateDownloadItem(const std::string& trackId, const std::function<void(DownloadItem&)>& fn);
 
@@ -125,6 +127,7 @@ private:
     std::atomic<bool> m_cancelDownloads{false};
     std::atomic<bool> m_networkAvailable{true};
     std::atomic<int> m_activeTasks{0};
+    std::atomic<uint64_t> m_latestStreamSeq{0};
 
     mutable std::mutex m_dlMutex;
     std::vector<DownloadItem> m_downloads;
