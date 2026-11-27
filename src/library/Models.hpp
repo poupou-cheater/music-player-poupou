@@ -51,6 +51,45 @@ struct Track {
     std::vector<std::string> tags;
 };
 
+inline std::string normalizeUtf8Display(const std::string& in) {
+    // Transliterate Mathematical Bold/Italic/Script ASCII (U+1D400..U+1D7FF) & strip zero-width/combining marks
+    std::string out;
+    out.reserve(in.size());
+    size_t i = 0;
+    while (i < in.size()) {
+        unsigned char c = static_cast<unsigned char>(in[i]);
+        uint32_t cp = 0;
+        size_t len = 1;
+        if (c < 0x80) { cp = c; len = 1; }
+        else if ((c & 0xE0) == 0xC0 && i + 1 < in.size()) {
+            cp = ((c & 0x1F) << 6) | (static_cast<unsigned char>(in[i + 1]) & 0x3F);
+            len = 2;
+        } else if ((c & 0xF0) == 0xE0 && i + 2 < in.size()) {
+            cp = ((c & 0x0F) << 12) | ((static_cast<unsigned char>(in[i + 1]) & 0x3F) << 6) | (static_cast<unsigned char>(in[i + 2]) & 0x3F);
+            len = 3;
+        } else if ((c & 0xF8) == 0xF0 && i + 3 < in.size()) {
+            cp = ((c & 0x07) << 18) | ((static_cast<unsigned char>(in[i + 1]) & 0x3F) << 12) |
+                 ((static_cast<unsigned char>(in[i + 2]) & 0x3F) << 6) | (static_cast<unsigned char>(in[i + 3]) & 0x3F);
+            len = 4;
+        }
+        // Skip combining diacritics & zero-width chars
+        if ((cp >= 0x0300 && cp <= 0x036F) || (cp >= 0x200B && cp <= 0x200F) || (cp >= 0xFE00 && cp <= 0xFE0F)) {
+            i += len;
+            continue;
+        }
+        // Map Mathematical Bold/Italic/Sans-Serif letters (U+1D400..U+1D6A3) to ASCII A-Z / a-z
+        if (cp >= 0x1D400 && cp <= 0x1D6A3) {
+            uint32_t offset = (cp - 0x1D400) % 52;
+            out.push_back(offset < 26 ? static_cast<char>('A' + offset) : static_cast<char>('a' + (offset - 26)));
+            i += len;
+            continue;
+        }
+        out.append(in, i, len);
+        i += len;
+    }
+    return out;
+}
+
 inline void extractHashtags(const std::string& rawTitle, std::string& cleanTitle, std::vector<std::string>& outTags) {
     cleanTitle.clear();
     outTags.clear();
@@ -102,7 +141,7 @@ struct AppSettings {
     float volume = 0.85f; // 0.0 .. 1.5 (0% .. 150%)
     bool muted = false;
     bool shuffle = false;
-    bool repeat = false;
+    int repeatMode = 0; // 0 = None, 1 = Repeat Same, 2 = Repeat Playlist/Queue
     int viewMode = 0; // 0 = Liste, 1 = Grandes Cartes, 2 = Compact
     std::string selectedPlaylistId;
     AudioPreset audioPreset = AudioPreset::YouTubeMusic;

@@ -29,9 +29,9 @@ static void to_json(json& j, const Track& t) {
 }
 
 static void from_json(const json& j, Track& t) {
-    std::string rawTitle = j.value("title", "Untitled");
+    std::string rawTitle = normalizeUtf8Display(j.value("title", "Untitled"));
     t.id = j.value("id", "");
-    t.artist = j.value("artist", "Unknown");
+    t.artist = normalizeUtf8Display(j.value("artist", "Unknown"));
     t.platform = static_cast<Platform>(j.value("platform", 0));
     t.sourceUrl = j.value("sourceUrl", "");
     t.durationSec = j.value("durationSec", 0.0);
@@ -94,7 +94,7 @@ static void to_json(json& j, const AppSettings& s) {
         {"volume", s.volume},
         {"muted", s.muted},
         {"shuffle", s.shuffle},
-        {"repeat", s.repeat},
+        {"repeatMode", s.repeatMode},
         {"viewMode", s.viewMode},
         {"selectedPlaylistId", s.selectedPlaylistId},
         {"audioPreset", static_cast<int>(s.audioPreset)},
@@ -122,7 +122,7 @@ static void from_json(const json& j, AppSettings& s) {
     s.volume = j.value("volume", 0.85f);
     s.muted = j.value("muted", false);
     s.shuffle = j.value("shuffle", false);
-    s.repeat = j.value("repeat", false);
+    s.repeatMode = j.value("repeatMode", j.value("repeat", false) ? 2 : 0);
     s.viewMode = j.value("viewMode", 0);
     s.selectedPlaylistId = j.value("selectedPlaylistId", "");
     s.audioPreset = static_cast<AudioPreset>(j.value("audioPreset", 1));
@@ -375,6 +375,24 @@ void LibraryManager::mergeSyncedPlaylist(const std::string& playlistId, const st
         }
         p.lastSynced = timestamp;
 
+        if (!fetchedTracks.empty()) {
+            // 1. Remove tracks that were deleted from the remote playlist
+            p.tracks.erase(
+                std::remove_if(p.tracks.begin(), p.tracks.end(), [&](const Track& existing) {
+                    bool stillPresent = std::any_of(fetchedTracks.begin(), fetchedTracks.end(), [&](const Track& inc) {
+                        return inc.id == existing.id || (!inc.sourceUrl.empty() && inc.sourceUrl == existing.sourceUrl);
+                    });
+                    if (!stillPresent && !existing.localMediaPath.empty() && fs::exists(existing.localMediaPath)) {
+                        std::error_code ec;
+                        fs::remove(existing.localMediaPath, ec);
+                    }
+                    return !stillPresent;
+                }),
+                p.tracks.end()
+            );
+        }
+
+        // 2. Add new tracks and update missing metadata on existing tracks
         for (const auto& incoming : fetchedTracks) {
             auto it = std::find_if(p.tracks.begin(), p.tracks.end(), [&](const Track& existing) {
                 return existing.id == incoming.id || (!incoming.sourceUrl.empty() && existing.sourceUrl == incoming.sourceUrl);
@@ -382,8 +400,8 @@ void LibraryManager::mergeSyncedPlaylist(const std::string& playlistId, const st
             if (it == p.tracks.end()) {
                 p.tracks.push_back(incoming);
             } else {
-                if (it->title.empty()) it->title = incoming.title;
-                if (it->artist.empty()) it->artist = incoming.artist;
+                if (it->title.empty() || it->title.find('?') != std::string::npos) it->title = incoming.title;
+                if (it->artist.empty() || it->artist.find('?') != std::string::npos) it->artist = incoming.artist;
                 if (it->thumbnailUrl.empty()) it->thumbnailUrl = incoming.thumbnailUrl;
                 if (it->durationSec <= 0.0) it->durationSec = incoming.durationSec;
             }

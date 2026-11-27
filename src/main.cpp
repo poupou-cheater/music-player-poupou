@@ -27,6 +27,9 @@ static void glfwFramebufferResizeCallback(GLFWwindow* /*window*/, int width, int
 }
 
 int main() {
+    SetEnvironmentVariableW(L"PYTHONUTF8", L"1");
+    SetEnvironmentVariableW(L"PYTHONIOENCODING", L"utf-8");
+
     if (!glfwInit()) {
         std::fprintf(stderr, "Failed to initialize GLFW\n");
         return 1;
@@ -55,7 +58,37 @@ int main() {
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     if (GetFileAttributesW(L"C:\\Windows\\Fonts\\segoeui.ttf") != INVALID_FILE_ATTRIBUTES) {
-        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", 17.5f, nullptr, io.Fonts->GetGlyphRangesDefault());
+        static const ImWchar latinAndSymbols[] = {
+            0x0020, 0x024F, // Basic Latin + Latin Extended
+            0x0400, 0x04FF, // Cyrillic
+            0x2000, 0x27BF, // Punctuation, Arrows, Math, Dingbats
+            0,
+        };
+        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", 17.5f, nullptr, latinAndSymbols);
+
+        ImFontConfig mergeCfg;
+        mergeCfg.MergeMode = true;
+        if (GetFileAttributesW(L"C:\\Windows\\Fonts\\seguisym.ttf") != INVALID_FILE_ATTRIBUTES) {
+            static const ImWchar symRange[] = { 0x2000, 0x2BFF, 0 };
+            io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\seguisym.ttf", 17.5f, &mergeCfg, symRange);
+        }
+        if (GetFileAttributesW(L"C:\\Windows\\Fonts\\seguiemj.ttf") != INVALID_FILE_ATTRIBUTES) {
+            static const ImWchar emjRange[] = { 0x1F300, 0x1FAFF, 0 };
+            io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\seguiemj.ttf", 17.5f, &mergeCfg, emjRange);
+        }
+        if (GetFileAttributesW(L"C:\\Windows\\Fonts\\YuGothR.ttc") != INVALID_FILE_ATTRIBUTES) {
+            io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\YuGothR.ttc", 17.5f, &mergeCfg, io.Fonts->GetGlyphRangesJapanese());
+        } else if (GetFileAttributesW(L"C:\\Windows\\Fonts\\meiryo.ttc") != INVALID_FILE_ATTRIBUTES) {
+            io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\meiryo.ttc", 17.5f, &mergeCfg, io.Fonts->GetGlyphRangesJapanese());
+        } else if (GetFileAttributesW(L"C:\\Windows\\Fonts\\msgothic.ttc") != INVALID_FILE_ATTRIBUTES) {
+            io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\msgothic.ttc", 17.5f, &mergeCfg, io.Fonts->GetGlyphRangesJapanese());
+        }
+        if (GetFileAttributesW(L"C:\\Windows\\Fonts\\malgun.ttf") != INVALID_FILE_ATTRIBUTES) {
+            io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", 17.5f, &mergeCfg, io.Fonts->GetGlyphRangesKorean());
+        }
+        if (GetFileAttributesW(L"C:\\Windows\\Fonts\\msyh.ttc") != INVALID_FILE_ATTRIBUTES) {
+            io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\msyh.ttc", 17.5f, &mergeCfg, io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
+        }
     }
     ImGui::StyleColorsDark();
 

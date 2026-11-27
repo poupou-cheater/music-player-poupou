@@ -71,6 +71,7 @@ target_include_directories(imgui_lib PUBLIC
 target_compile_definitions(imgui_lib PUBLIC
     VK_NO_PROTOTYPES
     IMGUI_IMPL_VULKAN_USE_VOLK
+    IMGUI_USE_WCHAR32
 )
 target_link_libraries(imgui_lib PUBLIC
     glfw
@@ -119,6 +120,7 @@ target_link_libraries(StreamPulse PRIVATE
     mfuuid
     winhttp
     windowscodecs
+    winmm
     shlwapi
     ole32
     shell32

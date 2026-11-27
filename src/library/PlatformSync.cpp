@@ -56,14 +56,14 @@ static double numOr(const json& obj, const char* key, double fallback = 0.0) {
 static Track parseTrackJson(const json& e, Platform plat, bool preferVid) {
     Track t;
     std::string rawId = strOr(e, "id");
-    std::string rawTitle = strOr(e, "title", "Untitled");
+    std::string rawTitle = normalizeUtf8Display(strOr(e, "title", "Untitled"));
     extractHashtags(rawTitle, t.title, t.tags);
     t.id = LibraryManager::sanitizeId(rawId.empty() ? t.title : rawId);
 
     std::string artist = strOr(e, "uploader");
     if (artist.empty()) artist = strOr(e, "channel");
     if (artist.empty()) artist = strOr(e, "creator", platformName(plat));
-    t.artist = artist;
+    t.artist = normalizeUtf8Display(artist);
     t.platform = plat;
     t.durationSec = numOr(e, "duration", 0.0);
     t.isVideo = preferVid || (plat == Platform::YouTube || plat == Platform::TikTok);
@@ -748,11 +748,16 @@ void PlatformSync::dlWorkerLoop() {
                            fmt + "\" " + (ff.empty() ? "" : postArgs) + "-o \"" + outPath + "\" \"" + task.url + "\"";
         runYtDlp(args, code, parseLine);
 
-        // Fallback attempt if primary format failed (e.g., format 18 / best single file)
+        // Fallback attempt if primary format failed (e.g., Video unavailable -> search by title + artist)
         if ((code != 0 || !fs::exists(outPath)) && !m_cancelDownloads.load()) {
-            std::string fbArgs = ff + "--retries 2 --force-overwrites --newline --no-part --no-warnings -f \"18/best\" " +
+            std::string fallbackTarget = task.url;
+            auto trInfo = m_library.getTrack(task.playlistId, task.trackId);
+            if (lastErrLine.find("unavailable") != std::string::npos && trInfo && !trInfo->title.empty()) {
+                fallbackTarget = "ytsearch1:" + trInfo->title + " " + trInfo->artist;
+            }
+            std::string fbArgs = ff + "--retries 2 --force-overwrites --newline --no-part --no-warnings -f \"18/bestaudio[ext=m4a]/best\" " +
                                  (task.asVideo ? "" : (ff.empty() ? "" : "-x --audio-format m4a ")) +
-                                 "-o \"" + outPath + "\" \"" + task.url + "\"";
+                                 "-o \"" + outPath + "\" \"" + fallbackTarget + "\"";
             runYtDlp(fbArgs, code, parseLine);
         }
 

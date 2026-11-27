@@ -1,6 +1,7 @@
 #include "media/MediaPlayer.hpp"
 
 #include <windows.h>
+#include <mmsystem.h>
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mfreadwrite.h>
@@ -169,7 +170,7 @@ void MediaPlayer::fillAudioOutput(float* output, uint32_t frameCount) {
     }
     m_fadeInSamples.store(fadeRem);
 
-    if (popped > 0) {
+    if (popped > 0 && !m_buffering.load()) {
         double dt = static_cast<double>(popped / m_channels) / static_cast<double>(m_sampleRate);
         double cur = m_clockSec.load();
         m_clockSec.store(cur + dt);
@@ -279,6 +280,7 @@ bool MediaPlayer::consumeVideoFrame(std::vector<uint8_t>& outRgba, uint32_t& out
 }
 
 void MediaPlayer::decoderLoop(std::string uri, bool preferAudioOnly) {
+    timeBeginPeriod(1);
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
     IMFAttributes* attrs = nullptr;
@@ -395,7 +397,11 @@ void MediaPlayer::decoderLoop(std::string uri, bool preferAudioOnly) {
             m_clockSec.store(m_clockSec.load() + dt);
         }
 
-        if (!audioEOF && m_audioRing.availableWrite() > m_sampleRate * m_channels / 4) {
+        // Tightly fill audio ring buffer (up to 1.5s ahead) so audio never starves
+        size_t targetFill = m_sampleRate * m_channels * 3 / 2;
+        int burst = 0;
+        while (!audioEOF && !m_stopRequested.load() && m_audioRing.size() < targetFill && burst < 16) {
+            ++burst;
             DWORD flags = 0;
             LONGLONG ts = 0;
             IMFSample* sample = nullptr;
@@ -481,4 +487,5 @@ void MediaPlayer::decoderLoop(std::string uri, bool preferAudioOnly) {
 
     safeRelease(reader);
     CoUninitialize();
+    timeEndPeriod(1);
 }

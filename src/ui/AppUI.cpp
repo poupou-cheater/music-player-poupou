@@ -61,7 +61,7 @@ void AppUI::init(GLFWwindow* window) {
     m_player.setMuted(s.muted);
     m_player.setEqGains(s.eqGainsDb);
     m_shuffle = s.shuffle;
-    m_repeat = s.repeat;
+    m_repeatMode = s.repeatMode;
     m_viewMode = s.viewMode;
     m_mediaKeys.setConfig(s.enableMediaKeys, s.mediaKeysExclusive, s.forceFocusOnMediaKey);
     m_discord.setEnabled(s.enableDiscordRPC, s.discordClientId);
@@ -187,12 +187,30 @@ void AppUI::enqueueTrack(const std::string& playlistId, const Track& track) {
 }
 
 void AppUI::playNext() {
-    if (!m_queue.empty()) {
-        QueueEntry next = m_queue.front();
-        m_queue.erase(m_queue.begin());
-        playTrack(next.playlistId, next.track);
+    // 1. If Queue has tracks and we're either playing from Queue or Queue is non-empty
+    if (!m_queue.empty() && (m_playingFromQueue || m_queueIndex < 0)) {
+        if (m_shuffle && m_queue.size() > 1) {
+            static std::mt19937 rng{std::random_device{}()};
+            std::uniform_int_distribution<int> dist(0, static_cast<int>(m_queue.size()) - 1);
+            m_queueIndex = dist(rng);
+            m_playingFromQueue = true;
+            playTrack(m_queue[m_queueIndex].playlistId, m_queue[m_queueIndex].track);
+            return;
+        }
+        int nextQ = m_playingFromQueue ? (m_queueIndex + 1) : 0;
+        if (nextQ >= static_cast<int>(m_queue.size())) {
+            if (m_repeatMode == 2) nextQ = 0; // Repeat Queue
+            else {
+                m_playingFromQueue = false;
+                return;
+            }
+        }
+        m_queueIndex = nextQ;
+        m_playingFromQueue = true;
+        playTrack(m_queue[m_queueIndex].playlistId, m_queue[m_queueIndex].track);
         return;
     }
+
     if (!m_hasCurrentTrack) return;
     auto pl = m_library.getPlaylist(m_currentPlaylistId);
     if (!pl || pl->tracks.empty()) return;
@@ -200,6 +218,7 @@ void AppUI::playNext() {
     if (m_shuffle && pl->tracks.size() > 1) {
         static std::mt19937 rng{std::random_device{}()};
         std::uniform_int_distribution<size_t> dist(0, pl->tracks.size() - 1);
+        m_playingFromQueue = false;
         playTrack(pl->id, pl->tracks[dist(rng)]);
         return;
     }
@@ -207,7 +226,8 @@ void AppUI::playNext() {
     for (size_t i = 0; i < pl->tracks.size(); ++i) {
         if (pl->tracks[i].id == m_currentTrack.id) {
             size_t nextIdx = (i + 1) % pl->tracks.size();
-            if (nextIdx == 0 && !m_repeat) return;
+            if (nextIdx == 0 && m_repeatMode != 2) return; // Stop at end unless Repeat Playlist
+            m_playingFromQueue = false;
             playTrack(pl->id, pl->tracks[nextIdx]);
             return;
         }
@@ -215,6 +235,13 @@ void AppUI::playNext() {
 }
 
 void AppUI::playPrev() {
+    if (m_playingFromQueue && !m_queue.empty()) {
+        int prevQ = m_queueIndex - 1;
+        if (prevQ < 0) prevQ = (m_repeatMode == 2) ? static_cast<int>(m_queue.size()) - 1 : 0;
+        m_queueIndex = prevQ;
+        playTrack(m_queue[m_queueIndex].playlistId, m_queue[m_queueIndex].track);
+        return;
+    }
     if (!m_hasCurrentTrack) return;
     auto pl = m_library.getPlaylist(m_currentPlaylistId);
     if (!pl || pl->tracks.empty()) return;
@@ -375,7 +402,7 @@ void AppUI::update(double dtSeconds) {
 
     if (m_player.consumeEnded()) {
         if (m_player.positionSeconds() >= 1.5 || m_player.durationSeconds() > 0.0) {
-            if (m_repeat) playTrack(m_currentPlaylistId, m_currentTrack);
+            if (m_repeatMode == 1) playTrack(m_currentPlaylistId, m_currentTrack); // Repeat Same
             else playNext();
         } else {
             ++m_consecutiveErrors;
@@ -474,24 +501,30 @@ void AppUI::render() {
 
 void AppUI::renderTopBar() {
     TemplatePalette pal = getTemplatePalette(m_library.activeTemplate());
-    ImGui::BeginChild("##TopBar", ImVec2(0.0f, 48.0f), true, ImGuiWindowFlags_NoScrollbar);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.04f, 0.04f, 0.05f, 1.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 8.0f));
+    ImGui::BeginChild("##TopBar", ImVec2(0.0f, 52.0f), true, ImGuiWindowFlags_NoScrollbar);
 
-    // Left: Brand
-    m_icons.draw("music", 22.0f, pal.accent);
-    ImGui::SameLine();
-    ImGui::TextColored(pal.accent, "StreamPulse");
+    // Left: YouTube Music style red circle + brand
+    m_icons.draw("youtubemusic", 24.0f, pal.accent);
+    ImGui::SameLine(0.0f, 8.0f);
+    ImGui::SetWindowFontScale(1.12f);
+    ImGui::TextUnformatted("StreamPulse");
+    ImGui::SetWindowFontScale(1.0f);
 
-    // Center-Left: Clean YouTube Music style navigation pills
-    ImGui::SameLine(155.0f);
+    // Center-Left: Clean YouTube Music navigation pills
+    ImGui::SameLine(170.0f);
     auto tabBtn = [&](MainTab tab, const char* label, const char* icon) {
         bool active = (m_activeTab == tab);
-        ImGui::PushStyleColor(ImGuiCol_Button, active ? pal.accent : ImVec4(0.14f, 0.14f, 0.17f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Button, active ? pal.accent : ImVec4(0.13f, 0.13f, 0.15f, 1.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 16.0f);
         m_icons.draw(icon, 16.0f, active ? ImVec4(1, 1, 1, 1) : pal.textMuted);
-        ImGui::SameLine(0.0f, 4.0f);
+        ImGui::SameLine(0.0f, 5.0f);
         if (ImGui::Button(label)) {
             m_activeTab = tab;
             m_fullscreenMode = false;
         }
+        ImGui::PopStyleVar();
         ImGui::PopStyleColor();
         ImGui::SameLine(0.0f, 8.0f);
     };
@@ -503,8 +536,9 @@ void AppUI::renderTopBar() {
     tabBtn(MainTab::Downloads, "Downloads", "download");
     tabBtn(MainTab::Stats, "Stats", "stats");
 
-    // Right: Sorted utility controls (Theme, Import, Settings, Offline)
-    ImGui::SameLine(ImGui::GetWindowWidth() - 415.0f);
+    // Right: Aligned utility controls
+    float rightStart = std::max(720.0f, ImGui::GetWindowWidth() - 405.0f);
+    ImGui::SameLine(rightStart);
     ImGui::SetNextItemWidth(105.0f);
     const char* tplNames[] = { "YT Music", "Spotify", "TikTok", "Minimal" };
     int curTpl = static_cast<int>(m_library.activeTemplate());
@@ -514,14 +548,14 @@ void AppUI::renderTopBar() {
         m_library.save();
         applyTemplateStyle(nextTpl, m_vk);
     }
-    ImGui::SameLine();
+    ImGui::SameLine(0.0f, 8.0f);
     if (ImGui::Button("+ Importer")) m_showImportModal = true;
-    ImGui::SameLine();
+    ImGui::SameLine(0.0f, 8.0f);
     if (m_icons.button("##top_settings", "settings", 18.0f, m_activeTab == MainTab::Settings ? pal.accent : pal.textPrimary)) {
         m_activeTab = MainTab::Settings;
         m_fullscreenMode = false;
     }
-    ImGui::SameLine();
+    ImGui::SameLine(0.0f, 8.0f);
 
     bool offline = m_library.offlineMode();
     bool netOk = m_sync.isNetworkAvailable();
@@ -529,16 +563,18 @@ void AppUI::renderTopBar() {
         ? ImVec4(0.85f, 0.35f, 0.15f, 1.0f)
         : (netOk ? ImVec4(0.14f, 0.55f, 0.30f, 1.0f) : ImVec4(0.55f, 0.45f, 0.15f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_Button, btnCol);
-    m_icons.draw(offline ? "wifi_off" : "wifi", 16.0f, ImVec4(1, 1, 1, 1));
-    ImGui::SameLine(0.0f, 4.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 16.0f);
     if (ImGui::Button(offline ? "Hors Ligne" : "En Ligne")) {
         m_library.setOfflineMode(!offline);
         m_library.save();
         if (offline) m_sync.refreshNetworkStatusAsync();
     }
+    ImGui::PopStyleVar();
     ImGui::PopStyleColor();
 
     ImGui::EndChild();
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
 }
 
 void AppUI::renderSidebar() {
@@ -969,9 +1005,21 @@ void AppUI::renderQueueTab() {
     TemplatePalette pal = getTemplatePalette(m_library.activeTemplate());
     m_icons.draw("queue", 22.0f, pal.accent);
     ImGui::SameLine();
-    ImGui::Text("Up Next Queue (%zu)", m_queue.size());
+    ImGui::Text("File d'attente en RAM (%zu)", m_queue.size());
     ImGui::SameLine();
-    if (ImGui::Button("Clear Queue")) m_queue.clear();
+    if (ImGui::Button("Lire File")) {
+        if (!m_queue.empty()) {
+            m_queueIndex = 0;
+            m_playingFromQueue = true;
+            playTrack(m_queue[0].playlistId, m_queue[0].track);
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Clear Queue")) {
+        m_queue.clear();
+        m_queueIndex = -1;
+        m_playingFromQueue = false;
+    }
     ImGui::Separator();
 
     if (m_queue.empty()) {
@@ -1004,14 +1052,15 @@ void AppUI::renderQueueTab() {
             }
             ImGui::TableNextColumn();
             if (m_icons.button(("##qgo_" + std::to_string(i)).c_str(), "play", 16.0f, pal.accent)) {
-                QueueEntry item = q;
-                m_queue.erase(m_queue.begin() + static_cast<ptrdiff_t>(i));
-                playTrack(item.playlistId, item.track);
+                m_queueIndex = static_cast<int>(i);
+                m_playingFromQueue = true;
+                playTrack(q.playlistId, q.track);
                 break;
             }
             ImGui::SameLine();
             if (m_icons.button(("##qrm_" + std::to_string(i)).c_str(), "close", 16.0f, pal.textMuted)) {
                 m_queue.erase(m_queue.begin() + static_cast<ptrdiff_t>(i));
+                if (m_queueIndex >= static_cast<int>(m_queue.size())) m_queueIndex = static_cast<int>(m_queue.size()) - 1;
                 break;
             }
         }
@@ -1330,12 +1379,13 @@ void AppUI::renderStagePanel(bool isFullscreen) {
                 } else {
                     for (size_t i = 0; i < m_queue.size(); ++i) {
                         const auto& q = m_queue[i];
+                        bool isQCur = (m_playingFromQueue && m_queueIndex == static_cast<int>(i));
                         ImGui::Image(getTrackThumb(q.track), ImVec2(34.0f, 34.0f));
                         ImGui::SameLine();
-                        if (ImGui::Selectable((q.track.title + "##sq_" + std::to_string(i)).c_str(), false)) {
-                            QueueEntry item = q;
-                            m_queue.erase(m_queue.begin() + static_cast<ptrdiff_t>(i));
-                            playTrack(item.playlistId, item.track);
+                        if (ImGui::Selectable((q.track.title + "##sq_" + std::to_string(i)).c_str(), isQCur)) {
+                            m_queueIndex = static_cast<int>(i);
+                            m_playingFromQueue = true;
+                            playTrack(q.playlistId, q.track);
                             break;
                         }
                     }
@@ -1362,38 +1412,40 @@ void AppUI::renderPlayerBar() {
     float posF = static_cast<float>(pos);
     float maxF = (dur > 0.1) ? static_cast<float>(dur) : 100.0f;
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 2.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize, 10.0f);
     ImGui::SetNextItemWidth(-1.0f);
     if (ImGui::SliderFloat("##Seek", &posF, 0.0f, maxF, "")) {
         if (dur > 0.1) m_player.seek(static_cast<double>(posF));
     }
-    ImGui::PopStyleVar();
+    ImGui::PopStyleVar(2);
 
     // Left: Prev / Play-Pause / Next + Time
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.0f);
     if (m_icons.button("##prev", "prev", 22.0f, pal.textPrimary)) playPrev();
-    ImGui::SameLine(0.0f, 6.0f);
-    if (m_icons.button("##playpause", m_player.isPlaying() ? "pause" : "play", 26.0f, pal.accent)) {
+    ImGui::SameLine(0.0f, 8.0f);
+    if (m_icons.button("##playpause", m_player.isPlaying() ? "pause" : "play", 28.0f, pal.accent)) {
         if (m_player.isOpen()) m_player.togglePlayPause();
     }
-    ImGui::SameLine(0.0f, 6.0f);
+    ImGui::SameLine(0.0f, 8.0f);
     if (m_icons.button("##next", "next", 22.0f, pal.textPrimary)) playNext();
-    ImGui::SameLine(0.0f, 12.0f);
+    ImGui::SameLine(0.0f, 14.0f);
     ImGui::TextDisabled("%s / %s", formatTime(pos).c_str(), dur > 0.1 ? formatTime(dur).c_str() : "--:--");
 
-    // Center: Cover + Title + Artist
+    // Center: Cover + Title + Artist (clamped so it never overlaps right controls)
     float winW = ImGui::GetWindowWidth();
     if (m_hasCurrentTrack) {
-        ImGui::SameLine(winW * 0.32f);
+        ImGui::SameLine(winW * 0.30f);
         ImTextureID barCov = m_coverTexture.isValid() ? m_coverTexture.imguiId() : m_defaultCoverTexture.imguiId();
-        ImGui::Image(barCov, ImVec2(38.0f, 38.0f));
-        ImGui::SameLine(0.0f, 8.0f);
-        ImGui::BeginGroup();
-        ImGui::Text("%s", m_currentTrack.title.c_str());
+        ImGui::Image(barCov, ImVec2(42.0f, 42.0f));
+        ImGui::SameLine(0.0f, 10.0f);
+        ImGui::BeginChild("##BarMeta", ImVec2(winW * 0.34f, 44.0f), false, ImGuiWindowFlags_NoScrollbar);
+        ImGui::TextUnformatted(m_currentTrack.title.c_str());
         ImGui::TextDisabled("%s", m_currentTrack.artist.c_str());
-        ImGui::EndGroup();
+        ImGui::EndChild();
     }
 
-    // Right: Volume % + Shuffle + Repeat + Lyrics + Fullscreen
-    ImGui::SameLine(winW - 395.0f);
+    // Right: Volume % + Shuffle + Repeat (Off/1/All) + Fullscreen
+    ImGui::SameLine(std::max(560.0f, winW - 395.0f));
     bool muted = m_player.isMuted();
     if (m_icons.button("##mute", muted ? "volume_mute" : "volume_high", 18.0f, pal.textPrimary)) {
         m_player.setMuted(!muted);
@@ -1411,7 +1463,7 @@ void AppUI::renderPlayerBar() {
     }
     ImGui::SameLine(0.0f, 4.0f);
     float volPct = m_player.volume() * 100.0f;
-    ImGui::SetNextItemWidth(115.0f);
+    ImGui::SetNextItemWidth(110.0f);
     if (ImGui::SliderFloat("##Vol", &volPct, 0.0f, 150.0f, "%.0f%%")) {
         m_player.setVolume(volPct / 100.0f);
         m_library.setVolume(volPct / 100.0f);
@@ -1424,7 +1476,7 @@ void AppUI::renderPlayerBar() {
         m_library.setVolume(v);
         m_library.save();
     }
-    ImGui::SameLine(0.0f, 10.0f);
+    ImGui::SameLine(0.0f, 12.0f);
     if (m_icons.button("##shuffle", "shuffle", 18.0f, m_shuffle ? pal.accent : pal.textMuted)) {
         m_shuffle = !m_shuffle;
         auto st = m_library.settings();
@@ -1432,15 +1484,22 @@ void AppUI::renderPlayerBar() {
         m_library.updateSettings(st);
         m_library.save();
     }
-    ImGui::SameLine(0.0f, 4.0f);
-    if (m_icons.button("##repeat", "repeat", 18.0f, m_repeat ? pal.accent : pal.textMuted)) {
-        m_repeat = !m_repeat;
+    ImGui::SameLine(0.0f, 6.0f);
+    ImVec4 repCol = (m_repeatMode == 0) ? pal.textMuted : (m_repeatMode == 1 ? pal.accentSecondary : pal.accent);
+    if (m_icons.button("##repeat", "repeat", 18.0f, repCol)) {
+        m_repeatMode = (m_repeatMode + 1) % 3;
         auto st = m_library.settings();
-        st.repeat = m_repeat;
+        st.repeatMode = m_repeatMode;
         m_library.updateSettings(st);
         m_library.save();
     }
-    ImGui::SameLine(0.0f, 4.0f);
+    if (ImGui::IsItemHovered()) {
+        const char* repTip = (m_repeatMode == 0) ? "Repeat: Rien" : (m_repeatMode == 1 ? "Repeat: Même titre (1)" : "Repeat: Playlist / File (All)");
+        ImGui::SetTooltip("%s", repTip);
+    }
+    ImGui::SameLine(0.0f, 2.0f);
+    ImGui::TextColored(repCol, m_repeatMode == 0 ? "" : (m_repeatMode == 1 ? "1" : "All"));
+    ImGui::SameLine(0.0f, 6.0f);
     if (m_icons.button("##bar_fs", m_fullscreenMode ? "fullscreen_exit" : "fullscreen", 18.0f, pal.textPrimary)) {
         m_fullscreenMode = !m_fullscreenMode;
     }

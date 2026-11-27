@@ -90,8 +90,10 @@ private:
     Track m_currentTrack;
     bool m_hasCurrentTrack = false;
     bool m_shuffle = false;
-    bool m_repeat = false;
+    int m_repeatMode = 0; // 0 = None, 1 = Repeat Same, 2 = Repeat Playlist/Queue
     std::vector<QueueEntry> m_queue;
+    int m_queueIndex = -1;
+    bool m_playingFromQueue = false;
     std::string m_preloadedForTrackId;
 
     // Stage modes & 3s auto-hide
