@@ -154,6 +154,9 @@ private:
     // UI inputs
     char m_searchBuf[128]{};
     bool m_showImportModal = false;
+    bool m_showCreatePlaylistModal = false;
+    char m_newPlNameBuf[128]{};
+    int m_newPlPlatIdx = 0;
     char m_urlBuf[512]{};
     char m_plNameBuf[128]{};
     char m_linkUrlBuf[512]{};

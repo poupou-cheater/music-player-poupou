@@ -861,6 +861,15 @@ void AppUI::renderSidebar() {
         }
     }
 
+    if (ImGui::BeginPopupContextWindow("##SidebarEmptyCtx", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+        if (ImGui::MenuItem("Nouvelle playlist")) {
+            std::snprintf(m_newPlNameBuf, sizeof(m_newPlNameBuf), "Nouvelle playlist");
+            m_newPlPlatIdx = 0;
+            m_showCreatePlaylistModal = true;
+        }
+        ImGui::EndPopup();
+    }
+
     ImGui::EndChild();
     ImGui::Separator();
     if (ImGui::Button("+ Importer", ImVec2(-1.0f, 30.0f))) {
@@ -1976,6 +1985,33 @@ static std::string browseFileWin32(const wchar_t* filter) {
 }
 
 void AppUI::renderImportModal() {
+    if (m_showCreatePlaylistModal) {
+        ImGui::OpenPopup("###CreatePlPopup");
+        m_showCreatePlaylistModal = false;
+    }
+    if (ImGui::BeginPopupModal("###CreatePlPopup", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
+        ImGui::Text("Nouvelle playlist");
+        ImGui::SetNextItemWidth(300.0f);
+        ImGui::InputTextWithHint("##NewPlName", "Nom de la playlist", m_newPlNameBuf, sizeof(m_newPlNameBuf));
+        const char* platItems[] = { "YouTube Music", "YouTube", "TikTok", "Local" };
+        ImGui::SetNextItemWidth(300.0f);
+        ImGui::Combo("Plateforme##NewPlPlat", &m_newPlPlatIdx, platItems, 4);
+        if (ImGui::Button("Creer##newpl_ok")) {
+            std::string name(m_newPlNameBuf);
+            if (name.empty()) name = "Nouvelle playlist";
+            Platform plat = static_cast<Platform>(std::clamp(m_newPlPlatIdx, 0, 3));
+            std::string id = m_library.createPlaylist(name, plat, "", false, false, plat == Platform::TikTok);
+            m_library.save();
+            m_selectedPlaylistId = id;
+            m_showOfflineOnlyView = false;
+            m_showLikedOnlyView = false;
+            m_activeTab = MainTab::Playlists;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Annuler##newpl_cancel")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
     if (m_showImportModal) {
         ImGui::OpenPopup("###ImportPopup");
         m_showImportModal = false;

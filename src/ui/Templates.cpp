@@ -153,16 +153,20 @@ void applyPaletteStyle(const TemplatePalette& p, VulkanContext& vk) {
     s.ItemSpacing = ImVec2(8.0f, 6.0f);
     s.WindowBorderSize = 0.0f;
     s.ChildBorderSize = 1.0f;
+    s.FrameBorderSize = 1.0f;
+    s.PopupBorderSize = 1.0f;
+
+    auto clamp01 = [](float v) { return v > 1.0f ? 1.0f : (v < 0.0f ? 0.0f : v); };
 
     ImVec4* c = s.Colors;
     c[ImGuiCol_WindowBg] = p.bgMain;
     c[ImGuiCol_ChildBg] = p.bgSidebar;
-    c[ImGuiCol_PopupBg] = p.bgCard;
-    c[ImGuiCol_Border] = ImVec4(1, 1, 1, 0.08f);
-    c[ImGuiCol_FrameBg] = p.bgCard;
-    c[ImGuiCol_FrameBgHovered] = ImVec4(p.bgCard.x + 0.05f, p.bgCard.y + 0.05f, p.bgCard.z + 0.05f, 1.0f);
+    c[ImGuiCol_PopupBg] = ImVec4(clamp01(p.bgSidebar.x + 0.02f), clamp01(p.bgSidebar.y + 0.02f), clamp01(p.bgSidebar.z + 0.03f), 0.98f);
+    c[ImGuiCol_Border] = ImVec4(1, 1, 1, 0.14f);
+    c[ImGuiCol_FrameBg] = ImVec4(clamp01(p.bgCard.x + 0.06f), clamp01(p.bgCard.y + 0.06f), clamp01(p.bgCard.z + 0.07f), 1.0f);
+    c[ImGuiCol_FrameBgHovered] = ImVec4(clamp01(p.bgCard.x + 0.11f), clamp01(p.bgCard.y + 0.11f), clamp01(p.bgCard.z + 0.13f), 1.0f);
     c[ImGuiCol_FrameBgActive] = p.accent;
-    c[ImGuiCol_Button] = p.bgCard;
+    c[ImGuiCol_Button] = ImVec4(clamp01(p.bgCard.x + 0.08f), clamp01(p.bgCard.y + 0.08f), clamp01(p.bgCard.z + 0.10f), 1.0f);
     c[ImGuiCol_ButtonHovered] = p.accentHover;
     c[ImGuiCol_ButtonActive] = p.accent;
     c[ImGuiCol_Header] = ImVec4(p.accent.x, p.accent.y, p.accent.z, 0.28f);
