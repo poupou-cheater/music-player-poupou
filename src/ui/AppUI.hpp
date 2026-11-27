@@ -182,4 +182,5 @@ private:
 
     char m_newThemeName[64]{ "Mon Thème" };
     CustomTheme m_newThemeDraft;
+    char m_newAudioProfileName[64]{ "Mon Profil Audio" };
 };

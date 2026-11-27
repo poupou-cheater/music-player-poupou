@@ -125,6 +125,15 @@ void MediaPlayer::setEqGains(const std::array<float, 5>& gainsDb) {
     }
 }
 
+void MediaPlayer::setAudioMixer(float preampDb, float balance, float stereoWidth, bool monoMix, bool softLimiter) {
+    float p = std::clamp(preampDb, -12.0f, 12.0f);
+    m_preampLinear.store(std::pow(10.0f, p / 20.0f));
+    m_balance.store(std::clamp(balance, -1.0f, 1.0f));
+    m_stereoWidth.store(std::clamp(stereoWidth, 0.0f, 2.0f));
+    m_monoMix.store(monoMix);
+    m_softLimiter.store(softLimiter);
+}
+
 void MediaPlayer::audioDataCallback(void* pDevice, void* pOutput, const void* /*pInput*/, uint32_t frameCount) {
     auto* dev = static_cast<ma_device*>(pDevice);
     auto* self = static_cast<MediaPlayer*>(dev->pUserData);
@@ -157,16 +166,47 @@ void MediaPlayer::fillAudioOutput(float* output, uint32_t frameCount) {
         }
     }
 
-    const float gain = m_muted.load() ? 0.0f : (m_volume.load() * m_extraGainLinear.load());
+    const float gain = m_muted.load() ? 0.0f : (m_volume.load() * m_extraGainLinear.load() * m_preampLinear.load());
+    const float bal = m_balance.load();
+    const float balL = (bal > 0.0f) ? (1.0f - bal) : 1.0f;
+    const float balR = (bal < 0.0f) ? (1.0f + bal) : 1.0f;
+    const float width = m_stereoWidth.load();
+    const bool mono = m_monoMix.load();
+    const bool limiter = m_softLimiter.load();
+
     int fadeRem = m_fadeInSamples.load();
     const int fadeTotal = static_cast<int>(m_sampleRate / 100) * static_cast<int>(m_channels); // 10ms smooth ramp
-    for (size_t i = 0; i < popped; ++i) {
+    for (size_t i = 0; i + 1 < popped; i += 2) {
+        float l = output[i];
+        float r = output[i + 1];
+        if (mono) {
+            float m = 0.5f * (l + r);
+            l = m;
+            r = m;
+        } else if (width != 1.0f) {
+            float mid = 0.5f * (l + r);
+            float side = 0.5f * (l - r) * width;
+            l = mid + side;
+            r = mid - side;
+        }
+
         float ramp = 1.0f;
         if (fadeRem > 0) {
             ramp = 1.0f - static_cast<float>(fadeRem) / static_cast<float>(fadeTotal);
-            --fadeRem;
+            fadeRem = std::max(0, fadeRem - 2);
         }
-        output[i] = std::clamp(output[i] * gain * ramp, -1.0f, 1.0f);
+
+        l *= gain * balL * ramp;
+        r *= gain * balR * ramp;
+        if (limiter) {
+            l = std::tanh(l);
+            r = std::tanh(r);
+        } else {
+            l = std::clamp(l, -1.0f, 1.0f);
+            r = std::clamp(r, -1.0f, 1.0f);
+        }
+        output[i] = l;
+        output[i + 1] = r;
     }
     m_fadeInSamples.store(fadeRem);
 

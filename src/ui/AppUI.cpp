@@ -74,6 +74,7 @@ void AppUI::init(GLFWwindow* window) {
     m_player.setVolume(s.volume);
     m_player.setMuted(s.muted);
     m_player.setEqGains(s.eqGainsDb);
+    m_player.setAudioMixer(s.preampDb, s.balance, s.stereoWidth, s.monoMix, s.softLimiter);
     m_shuffle = s.shuffle;
     m_repeatMode = s.repeatMode;
     m_viewMode = std::clamp(s.viewMode, 0, 1);
@@ -309,13 +310,19 @@ void AppUI::handleShortcuts() {
     ImGuiIO& io = ImGui::GetIO();
     if (!m_window) return;
     if (m_rebindingSlot >= 0) {
+        if (glfwGetKey(m_window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+            m_rebindingSlot = -1;
+            return;
+        }
         for (int k = 32; k <= 348; ++k) {
+            if (k == GLFW_KEY_ESCAPE) continue;
             if (glfwGetKey(m_window, k) == GLFW_PRESS) {
                 auto s = m_library.settings();
                 switch (m_rebindingSlot) {
                     case 0: s.keyPlayPause = k; break;
                     case 1: s.keyMute = k; break;
                     case 2: s.keyFullscreen = k; break;
+                    case 3: s.keyOsFullscreen = k; break;
                     case 4: s.keySeekBack = k; break;
                     case 5: s.keySeekFwd = k; break;
                     case 6: s.keyVolUp = k; break;
@@ -335,6 +342,7 @@ void AppUI::handleShortcuts() {
     auto s = m_library.settings();
     GLFWwindow* win = m_window;
     auto pressedOnce = [&](int key) {
+        if (key <= 0) return false;
         static std::unordered_map<int, bool> prev;
         bool down = glfwGetKey(win, key) == GLFW_PRESS;
         bool edge = down && !prev[key];
@@ -345,6 +353,7 @@ void AppUI::handleShortcuts() {
     if (pressedOnce(s.keyPlayPause) && m_player.isOpen()) m_player.togglePlayPause();
     if (pressedOnce(s.keyMute)) m_player.setMuted(!m_player.isMuted());
     if (pressedOnce(s.keyFullscreen)) m_fullscreenMode = !m_fullscreenMode;
+    if (pressedOnce(s.keyOsFullscreen)) toggleOsFullscreen();
     if (pressedOnce(s.keySeekBack)) m_player.seek(m_player.positionSeconds() - 5.0);
     if (pressedOnce(s.keySeekFwd)) m_player.seek(m_player.positionSeconds() + 5.0);
     if (pressedOnce(s.keyVolUp)) {
@@ -598,12 +607,10 @@ void AppUI::toggleOsFullscreen() {
         if (mode) {
             glfwSetWindowMonitor(m_window, best, 0, 0, mode->width, mode->height, mode->refreshRate);
             m_osFullscreen = true;
-            m_fullscreenMode = true;
         }
     } else {
         glfwSetWindowMonitor(m_window, nullptr, m_savedWinX, m_savedWinY, m_savedWinW, m_savedWinH, 0);
         m_osFullscreen = false;
-        m_fullscreenMode = false;
     }
 }
 
@@ -1517,32 +1524,6 @@ void AppUI::renderSettingsTab() {
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Général")) {
-            m_icons.draw("equalizer", 20.0f, pal.accent);
-            ImGui::SameLine();
-            ImGui::Text("Audio Mixer & Equalizer Presets");
-            ImGui::Separator();
-
-            const char* presetNames[] = { "Flat", "YouTube Music", "Spotify", "TikTok", "Custom" };
-            int pIdx = static_cast<int>(s.audioPreset);
-            if (ImGui::Combo("Audio Preset", &pIdx, presetNames, 5)) {
-                s.audioPreset = static_cast<AudioPreset>(pIdx);
-                if (s.audioPreset != AudioPreset::Custom) {
-                    s.eqGainsDb = presetEqGains(s.audioPreset);
-                }
-                m_player.setEqGains(s.eqGainsDb);
-                changed = true;
-            }
-
-            const char* bandLabels[5] = { "60 Hz (Sub)", "230 Hz (Bass)", "910 Hz (Mid)", "3.6 kHz (Presence)", "14 kHz (Treble)" };
-            for (int i = 0; i < 5; ++i) {
-                if (ImGui::SliderFloat(bandLabels[i], &s.eqGainsDb[i], -12.0f, 12.0f, "%.1f dB")) {
-                    s.audioPreset = AudioPreset::Custom;
-                    m_player.setEqGains(s.eqGainsDb);
-                    changed = true;
-                }
-            }
-
-            ImGui::Spacing();
             m_icons.draw("settings", 20.0f, pal.accent);
             ImGui::SameLine();
             ImGui::Text("Behavior, Discord & Keybinds");
@@ -1570,22 +1551,179 @@ void AppUI::renderSettingsTab() {
             }
 
             ImGui::Spacing();
-            ImGui::Text("Keybinds (click a button then press any key):");
-            auto keybindRow = [&](const char* label, int slot, int keyCode) {
+            ImGui::Text("Keybinds (clic gauche: assigner, clic droit: debind):");
+            auto keybindRow = [&](const char* label, int slot, int& keyCode) {
                 ImGui::Text("%-18s", label);
                 ImGui::SameLine(180.0f);
-                std::string btnTxt = (m_rebindingSlot == slot) ? "Press a key..." : MediaKeys::keyName(keyCode);
+                std::string btnTxt = (m_rebindingSlot == slot)
+                    ? "Appuyez..."
+                    : (keyCode <= 0 ? "Aucun" : MediaKeys::keyName(keyCode));
                 if (ImGui::Button((btnTxt + "##kb_" + std::to_string(slot)).c_str(), ImVec2(140.0f, 0.0f))) {
                     m_rebindingSlot = slot;
+                }
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                    keyCode = 0;
+                    if (m_rebindingSlot == slot) m_rebindingSlot = -1;
+                    changed = true;
                 }
             };
             keybindRow("Play / Pause", 0, s.keyPlayPause);
             keybindRow("Mute", 1, s.keyMute);
-            keybindRow("Fullscreen", 2, s.keyFullscreen);
+            keybindRow("Mode Focus", 2, s.keyFullscreen);
+            keybindRow("Fullscreen", 3, s.keyOsFullscreen);
             keybindRow("Seek -5s", 4, s.keySeekBack);
             keybindRow("Seek +5s", 5, s.keySeekFwd);
             keybindRow("Volume +5%", 6, s.keyVolUp);
             keybindRow("Volume -5%", 7, s.keyVolDown);
+
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Mélangeur Audio")) {
+            m_icons.draw("equalizer", 20.0f, pal.accent);
+            ImGui::SameLine();
+            ImGui::Text("Préréglages Audio intégrés");
+            ImGui::Separator();
+
+            struct AudioQuickPreset {
+                const char* name;
+                AudioPreset preset;
+                std::array<float, 5> eq;
+                float preamp;
+                float width;
+            };
+            const AudioQuickPreset builtIns[] = {
+                { "Flat",          AudioPreset::Flat,         {  0.0f,  0.0f,  0.0f,  0.0f,  0.0f },  0.0f, 1.0f },
+                { "YouTube Music", AudioPreset::YouTubeMusic, {  2.0f,  1.0f,  0.0f,  1.5f,  1.0f },  0.0f, 1.0f },
+                { "Spotify",       AudioPreset::Spotify,      {  3.5f,  1.5f, -0.5f,  2.0f,  2.5f },  0.0f, 1.05f },
+                { "TikTok",        AudioPreset::TikTok,       {  4.5f,  2.0f,  1.0f,  3.0f,  2.0f },  0.5f, 1.15f },
+                { "Bass Boost",    AudioPreset::Custom,       {  7.5f,  4.5f,  0.0f,  0.5f,  0.0f }, -1.0f, 1.0f },
+                { "Vocal / Clair", AudioPreset::Custom,       { -2.0f,  0.0f,  3.5f,  4.5f,  2.0f },  0.5f, 0.95f },
+                { "Nuit / Doux",   AudioPreset::Custom,       { -3.0f, -1.0f,  1.0f,  0.0f, -2.5f }, -2.0f, 0.85f }
+            };
+            for (int i = 0; i < 7; ++i) {
+                if (i % 4 != 0) ImGui::SameLine();
+                bool active = (s.activeCustomAudioIndex < 0 && i < 4 && static_cast<int>(s.audioPreset) == static_cast<int>(builtIns[i].preset));
+                if (active) ImGui::PushStyleColor(ImGuiCol_Button, pal.accent);
+                if (ImGui::Button((std::string(builtIns[i].name) + "##ap_" + std::to_string(i)).c_str())) {
+                    s.activeCustomAudioIndex = -1;
+                    s.audioPreset = builtIns[i].preset;
+                    s.eqGainsDb = builtIns[i].eq;
+                    s.preampDb = builtIns[i].preamp;
+                    s.stereoWidth = builtIns[i].width;
+                    s.balance = 0.0f;
+                    s.monoMix = false;
+                    m_player.setEqGains(s.eqGainsDb);
+                    m_player.setAudioMixer(s.preampDb, s.balance, s.stereoWidth, s.monoMix, s.softLimiter);
+                    changed = true;
+                }
+                if (active) ImGui::PopStyleColor();
+            }
+
+            ImGui::Spacing();
+            ImGui::Text("Mes Profils Audio personnalisés (%zu)", s.customAudioProfiles.size());
+            ImGui::Separator();
+            for (int i = 0; i < static_cast<int>(s.customAudioProfiles.size()); ++i) {
+                ImGui::PushID(1000 + i);
+                bool active = (s.activeCustomAudioIndex == i);
+                if (active) ImGui::PushStyleColor(ImGuiCol_Button, pal.accent);
+                if (ImGui::Button(s.customAudioProfiles[i].name.c_str())) {
+                    const auto& p = s.customAudioProfiles[i];
+                    s.activeCustomAudioIndex = i;
+                    s.audioPreset = AudioPreset::Custom;
+                    s.eqGainsDb = p.eqGainsDb;
+                    s.preampDb = p.preampDb;
+                    s.balance = p.balance;
+                    s.stereoWidth = p.stereoWidth;
+                    s.monoMix = p.monoMix;
+                    s.softLimiter = p.softLimiter;
+                    m_player.setEqGains(s.eqGainsDb);
+                    m_player.setAudioMixer(s.preampDb, s.balance, s.stereoWidth, s.monoMix, s.softLimiter);
+                    changed = true;
+                }
+                if (active) ImGui::PopStyleColor();
+                ImGui::SameLine();
+                if (ImGui::Button("Supprimer")) {
+                    s.customAudioProfiles.erase(s.customAudioProfiles.begin() + i);
+                    if (s.activeCustomAudioIndex == i) s.activeCustomAudioIndex = -1;
+                    else if (s.activeCustomAudioIndex > i) --s.activeCustomAudioIndex;
+                    changed = true;
+                    ImGui::PopID();
+                    break;
+                }
+                ImGui::PopID();
+            }
+
+            ImGui::Spacing();
+            ImGui::Text("Mixage & Spatialisation (en direct)");
+            ImGui::Separator();
+            bool mixerChanged = false;
+            ImGui::SetNextItemWidth(280.0f);
+            if (ImGui::SliderFloat("Préampli (Preamp)", &s.preampDb, -12.0f, 12.0f, "%.1f dB")) mixerChanged = true;
+            ImGui::SetNextItemWidth(280.0f);
+            if (ImGui::SliderFloat("Balance (Gauche / Droite)", &s.balance, -1.0f, 1.0f, "%.2f")) mixerChanged = true;
+            ImGui::SetNextItemWidth(280.0f);
+            float widthPct = s.stereoWidth * 100.0f;
+            if (ImGui::SliderFloat("Largeur Stéréo", &widthPct, 0.0f, 200.0f, "%.0f %%")) {
+                s.stereoWidth = widthPct / 100.0f;
+                mixerChanged = true;
+            }
+            if (ImGui::Checkbox("Mode Mono", &s.monoMix)) mixerChanged = true;
+            ImGui::SameLine();
+            if (ImGui::Checkbox("Limiteur doux (anti-saturation)", &s.softLimiter)) mixerChanged = true;
+
+            if (mixerChanged) {
+                s.activeCustomAudioIndex = -1;
+                m_player.setAudioMixer(s.preampDb, s.balance, s.stereoWidth, s.monoMix, s.softLimiter);
+                changed = true;
+            }
+
+            ImGui::Spacing();
+            ImGui::Text("Égaliseur 5 Bandes");
+            ImGui::Separator();
+            const char* bandLabels[5] = { "60 Hz (Sub)", "230 Hz (Bass)", "910 Hz (Mid)", "3.6 kHz (Presence)", "14 kHz (Treble)" };
+            for (int i = 0; i < 5; ++i) {
+                ImGui::SetNextItemWidth(280.0f);
+                if (ImGui::SliderFloat(bandLabels[i], &s.eqGainsDb[i], -12.0f, 12.0f, "%.1f dB")) {
+                    s.audioPreset = AudioPreset::Custom;
+                    s.activeCustomAudioIndex = -1;
+                    m_player.setEqGains(s.eqGainsDb);
+                    changed = true;
+                }
+            }
+            if (ImGui::Button("Réinitialiser tout (0 dB / Normal)")) {
+                s.audioPreset = AudioPreset::Flat;
+                s.activeCustomAudioIndex = -1;
+                s.eqGainsDb = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+                s.preampDb = 0.0f;
+                s.balance = 0.0f;
+                s.stereoWidth = 1.0f;
+                s.monoMix = false;
+                s.softLimiter = true;
+                m_player.setEqGains(s.eqGainsDb);
+                m_player.setAudioMixer(s.preampDb, s.balance, s.stereoWidth, s.monoMix, s.softLimiter);
+                changed = true;
+            }
+
+            ImGui::Spacing();
+            ImGui::Text("Créer un nouveau profil audio");
+            ImGui::Separator();
+            ImGui::SetNextItemWidth(260.0f);
+            ImGui::InputText("Nom du profil", m_newAudioProfileName, sizeof(m_newAudioProfileName));
+            ImGui::SameLine();
+            if (ImGui::Button("Créer & Sauvegarder le profil")) {
+                CustomAudioProfile ap;
+                ap.name = m_newAudioProfileName[0] ? std::string(m_newAudioProfileName) : "Profil Audio";
+                ap.eqGainsDb = s.eqGainsDb;
+                ap.preampDb = s.preampDb;
+                ap.balance = s.balance;
+                ap.stereoWidth = s.stereoWidth;
+                ap.monoMix = s.monoMix;
+                ap.softLimiter = s.softLimiter;
+                s.customAudioProfiles.push_back(std::move(ap));
+                s.activeCustomAudioIndex = static_cast<int>(s.customAudioProfiles.size()) - 1;
+                changed = true;
+            }
 
             ImGui::EndTabItem();
         }
@@ -1687,11 +1825,7 @@ void AppUI::renderStagePanel(bool isFullscreen) {
     m_icons.draw(m_player.hasVideo() ? "video" : "music", 18.0f, pal.accent);
     ImGui::SameLine();
     ImGui::TextColored(pal.accent, isFullscreen ? "PLEIN ECRAN" : "LECTURE");
-    ImGui::SameLine(ImGui::GetWindowWidth() - 96.0f);
-    if (ImGui::SmallButton(m_osFullscreen ? "Fenêtre" : "Écran")) {
-        toggleOsFullscreen();
-    }
-    ImGui::SameLine();
+    ImGui::SameLine(ImGui::GetWindowWidth() - 36.0f);
     if (m_icons.button("##stage_fs", isFullscreen ? "fullscreen_exit" : "fullscreen", 18.0f, pal.textPrimary)) {
         m_fullscreenMode = !m_fullscreenMode;
     }

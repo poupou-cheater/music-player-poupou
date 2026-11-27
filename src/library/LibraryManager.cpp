@@ -144,6 +144,30 @@ static void from_json(const json& j, CustomTheme& c) {
     c.rounding = j.value("rounding", 10.0f);
 }
 
+static void to_json(json& j, const CustomAudioProfile& a) {
+    j = json{
+        {"name", a.name},
+        {"eqGainsDb", a.eqGainsDb},
+        {"preampDb", a.preampDb},
+        {"balance", a.balance},
+        {"stereoWidth", a.stereoWidth},
+        {"monoMix", a.monoMix},
+        {"softLimiter", a.softLimiter}
+    };
+}
+
+static void from_json(const json& j, CustomAudioProfile& a) {
+    a.name = j.value("name", std::string("Mon Profil Audio"));
+    if (j.contains("eqGainsDb") && j["eqGainsDb"].is_array() && j["eqGainsDb"].size() == 5) {
+        for (size_t i = 0; i < 5; ++i) a.eqGainsDb[i] = j["eqGainsDb"][i].get<float>();
+    }
+    a.preampDb = j.value("preampDb", 0.0f);
+    a.balance = j.value("balance", 0.0f);
+    a.stereoWidth = j.value("stereoWidth", 1.0f);
+    a.monoMix = j.value("monoMix", false);
+    a.softLimiter = j.value("softLimiter", true);
+}
+
 static void to_json(json& j, const AppSettings& s) {
     j = json{
         {"offlineMode", s.offlineMode},
@@ -167,6 +191,13 @@ static void to_json(json& j, const AppSettings& s) {
         {"lastCacheCleanupEpoch", s.lastCacheCleanupEpoch},
         {"audioPreset", static_cast<int>(s.audioPreset)},
         {"eqGainsDb", s.eqGainsDb},
+        {"activeCustomAudioIndex", s.activeCustomAudioIndex},
+        {"customAudioProfiles", s.customAudioProfiles},
+        {"preampDb", s.preampDb},
+        {"balance", s.balance},
+        {"stereoWidth", s.stereoWidth},
+        {"monoMix", s.monoMix},
+        {"softLimiter", s.softLimiter},
         {"autoHideBarsFullscreen", s.autoHideBarsFullscreen},
         {"enableMediaKeys", s.enableMediaKeys},
         {"mediaKeysExclusive", s.mediaKeysExclusive},
@@ -176,6 +207,7 @@ static void to_json(json& j, const AppSettings& s) {
         {"keyPlayPause", s.keyPlayPause},
         {"keyMute", s.keyMute},
         {"keyFullscreen", s.keyFullscreen},
+        {"keyOsFullscreen", s.keyOsFullscreen},
         {"keySeekBack", s.keySeekBack},
         {"keySeekFwd", s.keySeekFwd},
         {"keyVolUp", s.keyVolUp},
@@ -209,6 +241,15 @@ static void from_json(const json& j, AppSettings& s) {
     if (j.contains("eqGainsDb") && j["eqGainsDb"].is_array() && j["eqGainsDb"].size() == 5) {
         for (size_t i = 0; i < 5; ++i) s.eqGainsDb[i] = j["eqGainsDb"][i].get<float>();
     }
+    s.activeCustomAudioIndex = j.value("activeCustomAudioIndex", -1);
+    if (j.contains("customAudioProfiles") && j["customAudioProfiles"].is_array()) {
+        s.customAudioProfiles = j.at("customAudioProfiles").get<std::vector<CustomAudioProfile>>();
+    }
+    s.preampDb = j.value("preampDb", 0.0f);
+    s.balance = j.value("balance", 0.0f);
+    s.stereoWidth = j.value("stereoWidth", 1.0f);
+    s.monoMix = j.value("monoMix", false);
+    s.softLimiter = j.value("softLimiter", true);
     s.autoHideBarsFullscreen = j.value("autoHideBarsFullscreen", true);
     s.enableMediaKeys = j.value("enableMediaKeys", true);
     s.mediaKeysExclusive = j.value("mediaKeysExclusive", true);
@@ -218,6 +259,7 @@ static void from_json(const json& j, AppSettings& s) {
     s.keyPlayPause = j.value("keyPlayPause", 32);
     s.keyMute = j.value("keyMute", 77);
     s.keyFullscreen = j.value("keyFullscreen", 70);
+    s.keyOsFullscreen = j.value("keyOsFullscreen", 300);
     s.keySeekBack = j.value("keySeekBack", 263);
     s.keySeekFwd = j.value("keySeekFwd", 262);
     s.keyVolUp = j.value("keyVolUp", 265);

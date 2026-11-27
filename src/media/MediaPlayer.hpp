@@ -31,6 +31,7 @@ public:
 
     // 5-band Equalizer (60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz) in dB (-12 .. +12)
     void setEqGains(const std::array<float, 5>& gainsDb);
+    void setAudioMixer(float preampDb, float balance, float stereoWidth, bool monoMix, bool softLimiter);
 
     bool isPlaying() const { return m_playing.load() && !m_paused.load(); }
     bool isPaused() const { return m_paused.load(); }
@@ -126,6 +127,11 @@ private:
 
     std::atomic<float> m_volume{0.85f};
     std::atomic<float> m_extraGainLinear{1.0f};
+    std::atomic<float> m_preampLinear{1.0f};
+    std::atomic<float> m_balance{0.0f};
+    std::atomic<float> m_stereoWidth{1.0f};
+    std::atomic<bool> m_monoMix{false};
+    std::atomic<bool> m_softLimiter{true};
     std::atomic<bool> m_muted{false};
     std::atomic<double> m_durationSec{0.0};
     std::atomic<double> m_clockSec{0.0};

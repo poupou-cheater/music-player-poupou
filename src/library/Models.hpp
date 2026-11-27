@@ -160,6 +160,16 @@ struct CustomTheme {
     float rounding = 10.0f;
 };
 
+struct CustomAudioProfile {
+    std::string name = "Mon Profil Audio";
+    std::array<float, 5> eqGainsDb = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+    float preampDb = 0.0f;
+    float balance = 0.0f;
+    float stereoWidth = 1.0f;
+    bool monoMix = false;
+    bool softLimiter = true;
+};
+
 struct AppSettings {
     bool offlineMode = false;
     GuiTemplate activeTemplate = GuiTemplate::YouTubeMusic;
@@ -182,6 +192,13 @@ struct AppSettings {
     long long lastCacheCleanupEpoch = 0;
     AudioPreset audioPreset = AudioPreset::YouTubeMusic;
     std::array<float, 5> eqGainsDb = { 2.0f, 1.0f, 0.0f, 1.5f, 1.0f }; // 60, 230, 910, 3.6k, 14k Hz
+    int activeCustomAudioIndex = -1;
+    std::vector<CustomAudioProfile> customAudioProfiles;
+    float preampDb = 0.0f;
+    float balance = 0.0f;
+    float stereoWidth = 1.0f;
+    bool monoMix = false;
+    bool softLimiter = true;
     bool autoHideBarsFullscreen = true;
     bool enableMediaKeys = true;
     bool mediaKeysExclusive = true; // Intercept media keys exclusively for StreamPulse
@@ -192,7 +209,8 @@ struct AppSettings {
     // Customizable Keybinds (GLFW key codes)
     int keyPlayPause = 32;   // GLFW_KEY_SPACE
     int keyMute = 77;        // GLFW_KEY_M
-    int keyFullscreen = 70;  // GLFW_KEY_F
+    int keyFullscreen = 70;  // GLFW_KEY_F (Mode Focus)
+    int keyOsFullscreen = 300; // GLFW_KEY_F11 (Fullscreen OS)
     int keySeekBack = 263;   // GLFW_KEY_LEFT
     int keySeekFwd = 262;    // GLFW_KEY_RIGHT
     int keyVolUp = 265;      // GLFW_KEY_UP
