@@ -13,3 +13,4 @@ tools/*.exe
 data/
 downloads/
 cache/
+dist/

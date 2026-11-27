@@ -1,5 +1,6 @@
 #include "ui/IconStore.hpp"
 #include "vulkan/VulkanContext.hpp"
+#include "EmbeddedIcons.hpp"
 
 #include <nanosvg.h>
 #include <nanosvgrast.h>
@@ -8,36 +9,53 @@
 
 namespace fs = std::filesystem;
 
-bool IconStore::loadAll(VulkanContext& ctx, const std::string& folder, int sizePx) {
-    if (!fs::exists(folder)) return false;
+static void rasterizeAndStore(VulkanContext& ctx, NSVGrasterizer* rast,
+                              std::vector<uint8_t>& rgba, int sizePx,
+                              std::unordered_map<std::string, VulkanTexture>& icons,
+                              const std::string& key, NSVGimage* image) {
+    if (!image || image->width <= 0.0f || image->height <= 0.0f) {
+        if (image) nsvgDelete(image);
+        return;
+    }
 
+    float scaleX = static_cast<float>(sizePx) / image->width;
+    float scaleY = static_cast<float>(sizePx) / image->height;
+    float scale = (scaleX < scaleY) ? scaleX : scaleY;
+
+    std::fill(rgba.begin(), rgba.end(), 0);
+    nsvgRasterize(rast, image, 0.0f, 0.0f, scale, rgba.data(), sizePx, sizePx, sizePx * 4);
+    nsvgDelete(image);
+
+    VulkanTexture tex;
+    if (tex.createFromRGBA(ctx, rgba.data(), static_cast<uint32_t>(sizePx), static_cast<uint32_t>(sizePx))) {
+        auto it = icons.find(key);
+        if (it != icons.end()) it->second.destroy(ctx);
+        icons[key] = tex;
+    }
+}
+
+bool IconStore::loadAll(VulkanContext& ctx, const std::string& folder, int sizePx) {
     NSVGrasterizer* rast = nsvgCreateRasterizer();
     if (!rast) return false;
 
     std::vector<uint8_t> rgba(static_cast<size_t>(sizePx) * sizePx * 4);
 
-    for (const auto& entry : fs::directory_iterator(folder)) {
-        if (!entry.is_regular_file() || entry.path().extension() != ".svg") continue;
+    // 1. Load all SVG icons embedded directly inside StreamPulse.exe
+    for (const auto& [name, svgText] : kEmbeddedIcons) {
+        std::string buf(svgText);
+        NSVGimage* image = nsvgParse(buf.data(), "px", 96.0f);
+        rasterizeAndStore(ctx, rast, rgba, sizePx, m_icons, std::string(name), image);
+    }
 
-        std::string key = entry.path().stem().string();
-        std::string pathStr = entry.path().string();
-        NSVGimage* image = nsvgParseFromFile(pathStr.c_str(), "px", 96.0f);
-        if (!image || image->width <= 0.0f || image->height <= 0.0f) {
-            if (image) nsvgDelete(image);
-            continue;
-        }
-
-        float scaleX = static_cast<float>(sizePx) / image->width;
-        float scaleY = static_cast<float>(sizePx) / image->height;
-        float scale = (scaleX < scaleY) ? scaleX : scaleY;
-
-        std::fill(rgba.begin(), rgba.end(), 0);
-        nsvgRasterize(rast, image, 0.0f, 0.0f, scale, rgba.data(), sizePx, sizePx, sizePx * 4);
-        nsvgDelete(image);
-
-        VulkanTexture tex;
-        if (tex.createFromRGBA(ctx, rgba.data(), static_cast<uint32_t>(sizePx), static_cast<uint32_t>(sizePx))) {
-            m_icons[key] = tex;
+    // 2. Allow optional disk overrides / extras if assets/icons exists
+    if (fs::exists(folder)) {
+        for (const auto& entry : fs::directory_iterator(folder)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".svg") continue;
+            std::string key = entry.path().stem().string();
+            if (m_icons.find(key) != m_icons.end()) continue;
+            std::string pathStr = entry.path().string();
+            NSVGimage* image = nsvgParseFromFile(pathStr.c_str(), "px", 96.0f);
+            rasterizeAndStore(ctx, rast, rgba, sizePx, m_icons, key, image);
         }
     }
 

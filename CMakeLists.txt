@@ -79,8 +79,21 @@ target_link_libraries(imgui_lib PUBLIC
     Vulkan::Headers
 )
 
+file(GLOB ICON_SVG_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/*.svg")
+set(EMBEDDED_ICONS_HPP "${CMAKE_CURRENT_BINARY_DIR}/generated/EmbeddedIcons.hpp")
+add_custom_command(
+    OUTPUT "${EMBEDDED_ICONS_HPP}"
+    COMMAND ${CMAKE_COMMAND}
+        -DICONS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/icons"
+        -DOUT_FILE="${EMBEDDED_ICONS_HPP}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedIcons.cmake"
+    DEPENDS ${ICON_SVG_FILES} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedIcons.cmake"
+    COMMENT "Embedding SVG icons into EmbeddedIcons.hpp"
+)
+
 # Main Application (WIN32 GUI subsystem, no console window)
 add_executable(StreamPulse WIN32
+    "${EMBEDDED_ICONS_HPP}"
     src/main.cpp
     assets/app_icon.rc
     src/third_party_impl.cpp
@@ -100,6 +113,7 @@ add_executable(StreamPulse WIN32
 target_include_directories(StreamPulse PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 
 target_compile_definitions(StreamPulse PRIVATE
