@@ -644,7 +644,7 @@ void AppUI::renderTopBar() {
     tabBtn(MainTab::Stats, "Stats", "stats");
 
     // Right: Responsive aligned utility controls
-    float rightW = compactBar ? 290.0f : 375.0f;
+    float rightW = compactBar ? 275.0f : 315.0f;
     float rightX = winW - rightW;
     if (rightX > ImGui::GetCursorPosX()) {
         ImGui::SameLine(rightX);
@@ -677,8 +677,6 @@ void AppUI::renderTopBar() {
         ImGui::EndCombo();
     }
     ImGui::SameLine(0.0f, 6.0f);
-    if (ImGui::Button(compactBar ? "+" : "+ Importer")) m_showImportModal = true;
-    ImGui::SameLine(0.0f, 6.0f);
     if (m_icons.button("##top_settings", "settings", 18.0f, m_activeTab == MainTab::Settings ? pal.accent : pal.textPrimary)) {
         m_activeTab = MainTab::Settings;
         m_fullscreenMode = false;
@@ -709,6 +707,8 @@ void AppUI::renderSidebar() {
     TemplatePalette pal = activePalette();
     auto playlists = m_library.playlistsCopy();
 
+    ImGui::BeginChild("##SidebarScroll", ImVec2(0.0f, -44.0f), false);
+
     m_icons.draw("heart_filled", 18.0f, pal.accent);
     ImGui::SameLine();
     if (ImGui::Selectable("Titres Favoris", m_showLikedOnlyView)) {
@@ -737,6 +737,62 @@ void AppUI::renderSidebar() {
     }
 
     // Favorite Playlists section at top
+    auto drawPlaylistCtx = [&](const Playlist& pl, const char* popupId) {
+        if (ImGui::BeginPopupContextItem(popupId)) {
+            if (ImGui::MenuItem(pl.favorite ? "Retirer des favoris" : "Ajouter aux favoris")) {
+                m_library.togglePlaylistFavorite(pl.id);
+                m_library.save();
+            }
+            if (pl.platform != Platform::Local) {
+                ImGui::Separator();
+                bool offline = m_library.offlineMode();
+                if (ImGui::MenuItem("Synchroniser", nullptr, false, !offline && !pl.sourceUrl.empty())) {
+                    m_sync.syncPlaylistAsync(pl.id);
+                }
+                if (ImGui::MenuItem("Tout telecharger", nullptr, false, !offline && !pl.tracks.empty())) {
+                    m_sync.queuePlaylistDownload(pl.id, pl.preferVideo);
+                }
+                bool autoSync = pl.autoSync, autoDl = pl.autoDownload, prefVid = pl.preferVideo;
+                bool changed = false;
+                if (ImGui::MenuItem("Auto-Sync", nullptr, &autoSync)) changed = true;
+                if (ImGui::MenuItem("Auto-Download", nullptr, &autoDl)) changed = true;
+                if (ImGui::MenuItem("Preferer Video", nullptr, &prefVid)) changed = true;
+                if (changed) {
+                    m_library.setPlaylistOptions(pl.id, autoSync, autoDl, prefVid);
+                    m_library.save();
+                }
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Audio / dB & EQ")) {
+                m_showAudioModal = true;
+                m_audioModalIsPlaylist = true;
+                m_audioModalPlaylistId = pl.id;
+                m_audioModalLabel = "Playlist: " + pl.name;
+                m_audioModalData = pl.audioOverride;
+            }
+            if (ImGui::MenuItem("Renommer")) {
+                m_showRenameModal = true;
+                m_renameIsPlaylist = true;
+                m_renamePlaylistId = pl.id;
+                std::snprintf(m_renameTitleBuf, sizeof(m_renameTitleBuf), "%s", pl.name.c_str());
+            }
+            if (ImGui::MenuItem("Supprimer fichiers locaux")) {
+                m_library.clearPlaylistLocalFiles(pl.id);
+                m_library.save();
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Supprimer la playlist")) {
+                m_library.deletePlaylist(pl.id);
+                m_library.save();
+                if (m_selectedPlaylistId == pl.id) {
+                    auto rem = m_library.playlistsCopy();
+                    m_selectedPlaylistId = rem.empty() ? "" : rem.front().id;
+                }
+            }
+            ImGui::EndPopup();
+        }
+    };
+
     std::vector<Playlist> favPlaylists;
     for (const auto& p : playlists) {
         if (p.favorite) favPlaylists.push_back(p);
@@ -758,13 +814,7 @@ void AppUI::renderSidebar() {
                 m_library.updateSettings(st);
                 m_library.save();
             }
-            if (ImGui::BeginPopupContextItem(("##sb_fav_ctx_" + pl.id).c_str())) {
-                if (ImGui::MenuItem("Retirer des favoris")) {
-                    m_library.togglePlaylistFavorite(pl.id);
-                    m_library.save();
-                }
-                ImGui::EndPopup();
-            }
+            drawPlaylistCtx(pl, ("##sb_fav_ctx_" + pl.id).c_str());
         }
     }
 
@@ -779,11 +829,11 @@ void AppUI::renderSidebar() {
         for (const auto& p : playlists) {
             if (p.platform == plat) group.push_back(p);
         }
+        if (group.empty()) continue;
 
         m_icons.draw(platformIconKey(plat), 18.0f, pal.accent);
         ImGui::SameLine();
         if (ImGui::TreeNodeEx(platformName(plat), ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (group.empty()) ImGui::TextDisabled("  (No playlists)");
             for (const auto& pl : group) {
                 bool selected = (!m_showOfflineOnlyView && !m_showLikedOnlyView && m_selectedPlaylistId == pl.id);
                 m_icons.draw("playlist", 15.0f, selected ? pal.accent : pal.textMuted);
@@ -798,16 +848,17 @@ void AppUI::renderSidebar() {
                     m_library.updateSettings(st);
                     m_library.save();
                 }
-                if (ImGui::BeginPopupContextItem(("##sb_ctx_" + pl.id).c_str())) {
-                    if (ImGui::MenuItem(pl.favorite ? "Retirer des favoris" : "Ajouter aux favoris")) {
-                        m_library.togglePlaylistFavorite(pl.id);
-                        m_library.save();
-                    }
-                    ImGui::EndPopup();
-                }
+                drawPlaylistCtx(pl, ("##sb_ctx_" + pl.id).c_str());
             }
             ImGui::TreePop();
         }
+    }
+
+    ImGui::EndChild();
+    ImGui::Separator();
+    ImGui::Spacing();
+    if (ImGui::Button("+ Importer", ImVec2(-1.0f, 30.0f))) {
+        m_showImportModal = true;
     }
 }
 
@@ -903,34 +954,66 @@ void AppUI::renderPlaylistsTab() {
     ImGui::SameLine();
     m_icons.draw(platformIconKey(pl.platform), 20.0f, pal.accent);
     ImGui::SameLine();
-    ImGui::Text("%s", pl.name.c_str());
+    ImGui::Text("%s (%zu)", pl.name.c_str(), pl.tracks.size());
+    if (ImGui::BeginPopupContextItem("##pl_hdr_ctx")) {
+        if (ImGui::MenuItem(pl.favorite ? "Retirer des favoris" : "Ajouter aux favoris")) {
+            m_library.togglePlaylistFavorite(pl.id);
+            m_library.save();
+        }
+        if (pl.platform != Platform::Local) {
+            ImGui::Separator();
+            bool offlineCtx = m_library.offlineMode();
+            if (ImGui::MenuItem("Synchroniser", nullptr, false, !offlineCtx && !pl.sourceUrl.empty())) {
+                m_sync.syncPlaylistAsync(pl.id);
+            }
+            if (ImGui::MenuItem("Tout telecharger", nullptr, false, !offlineCtx && !pl.tracks.empty())) {
+                m_sync.queuePlaylistDownload(pl.id, pl.preferVideo);
+            }
+            bool autoSync = pl.autoSync, autoDl = pl.autoDownload, prefVid = pl.preferVideo;
+            bool changed = false;
+            if (ImGui::MenuItem("Auto-Sync", nullptr, &autoSync)) changed = true;
+            if (ImGui::MenuItem("Auto-Download", nullptr, &autoDl)) changed = true;
+            if (ImGui::MenuItem("Preferer Video", nullptr, &prefVid)) changed = true;
+            if (changed) {
+                m_library.setPlaylistOptions(pl.id, autoSync, autoDl, prefVid);
+                m_library.save();
+            }
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Audio / dB & EQ")) {
+            m_showAudioModal = true;
+            m_audioModalIsPlaylist = true;
+            m_audioModalPlaylistId = pl.id;
+            m_audioModalLabel = "Playlist: " + pl.name;
+            m_audioModalData = pl.audioOverride;
+        }
+        if (ImGui::MenuItem("Renommer")) {
+            m_showRenameModal = true;
+            m_renameIsPlaylist = true;
+            m_renamePlaylistId = pl.id;
+            std::snprintf(m_renameTitleBuf, sizeof(m_renameTitleBuf), "%s", pl.name.c_str());
+        }
+        if (ImGui::MenuItem("Supprimer fichiers locaux")) {
+            m_library.clearPlaylistLocalFiles(pl.id);
+            m_library.save();
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Supprimer la playlist")) {
+            m_library.deletePlaylist(pl.id);
+            m_library.save();
+            auto lists = m_library.playlistsCopy();
+            m_selectedPlaylistId = lists.empty() ? "" : lists.front().id;
+            ImGui::EndPopup();
+            return;
+        }
+        ImGui::EndPopup();
+    }
     ImGui::SameLine();
     if (m_icons.button("##pl_fav", pl.favorite ? "heart_filled" : "heart", 18.0f, pl.favorite ? pal.accent : pal.textMuted)) {
         m_library.togglePlaylistFavorite(pl.id);
         m_library.save();
     }
 
-    bool autoSync = pl.autoSync, autoDl = pl.autoDownload, prefVid = pl.preferVideo;
-    bool optsChanged = false;
-    if (pl.platform != Platform::Local) {
-        if (ImGui::Checkbox("Auto-Sync", &autoSync)) optsChanged = true;
-        ImGui::SameLine();
-        if (ImGui::Checkbox("Auto-Download", &autoDl)) optsChanged = true;
-        ImGui::SameLine();
-        if (ImGui::Checkbox("Prefer Video", &prefVid)) optsChanged = true;
-        if (optsChanged) {
-            m_library.setPlaylistOptions(pl.id, autoSync, autoDl, prefVid);
-            m_library.save();
-        }
-        ImGui::SameLine();
-        ImGui::BeginDisabled(m_library.offlineMode() || pl.sourceUrl.empty());
-        if (ImGui::Button("Sync")) m_sync.syncPlaylistAsync(pl.id);
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::BeginDisabled(m_library.offlineMode() || pl.tracks.empty());
-        if (ImGui::Button("Download All")) m_sync.queuePlaylistDownload(pl.id, prefVid);
-        ImGui::EndDisabled();
-    }
     ImGui::SameLine();
     const char* viewModes[] = { "Liste", "Grandes Cartes" };
     ImGui::SetNextItemWidth(125.0f);
@@ -939,35 +1022,6 @@ void AppUI::renderPlaylistsTab() {
         st.viewMode = m_viewMode;
         m_library.updateSettings(st);
         m_library.save();
-    }
-
-    ImGui::SameLine();
-    if (ImGui::Button("Audio / dB")) {
-        m_showAudioModal = true;
-        m_audioModalIsPlaylist = true;
-        m_audioModalPlaylistId = pl.id;
-        m_audioModalLabel = "Playlist: " + pl.name;
-        m_audioModalData = pl.audioOverride;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Renommer")) {
-        m_showRenameModal = true;
-        m_renameIsPlaylist = true;
-        m_renamePlaylistId = pl.id;
-        std::snprintf(m_renameTitleBuf, sizeof(m_renameTitleBuf), "%s", pl.name.c_str());
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Suppr. locaux")) {
-        m_library.clearPlaylistLocalFiles(pl.id);
-        m_library.save();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Delete")) {
-        m_library.deletePlaylist(pl.id);
-        m_library.save();
-        auto lists = m_library.playlistsCopy();
-        m_selectedPlaylistId = lists.empty() ? "" : lists.front().id;
-        return;
     }
 
     ImGui::Separator();
