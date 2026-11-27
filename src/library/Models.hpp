@@ -144,6 +144,11 @@ struct AppSettings {
     int repeatMode = 0; // 0 = None, 1 = Repeat Same, 2 = Repeat Playlist/Queue
     int viewMode = 0; // 0 = Liste, 1 = Grandes Cartes, 2 = Compact
     std::string selectedPlaylistId;
+    int winX = -1;
+    int winY = -1;
+    int winW = 1400;
+    int winH = 860;
+    bool winMaximized = false;
     AudioPreset audioPreset = AudioPreset::YouTubeMusic;
     std::array<float, 5> eqGainsDb = { 2.0f, 1.0f, 0.0f, 1.5f, 1.0f }; // 60, 230, 910, 3.6k, 14k Hz
     bool autoHideBarsFullscreen = true;

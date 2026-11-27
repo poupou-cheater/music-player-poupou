@@ -97,6 +97,11 @@ static void to_json(json& j, const AppSettings& s) {
         {"repeatMode", s.repeatMode},
         {"viewMode", s.viewMode},
         {"selectedPlaylistId", s.selectedPlaylistId},
+        {"winX", s.winX},
+        {"winY", s.winY},
+        {"winW", s.winW},
+        {"winH", s.winH},
+        {"winMaximized", s.winMaximized},
         {"audioPreset", static_cast<int>(s.audioPreset)},
         {"eqGainsDb", s.eqGainsDb},
         {"autoHideBarsFullscreen", s.autoHideBarsFullscreen},
@@ -125,6 +130,11 @@ static void from_json(const json& j, AppSettings& s) {
     s.repeatMode = j.value("repeatMode", j.value("repeat", false) ? 2 : 0);
     s.viewMode = j.value("viewMode", 0);
     s.selectedPlaylistId = j.value("selectedPlaylistId", "");
+    s.winX = j.value("winX", -1);
+    s.winY = j.value("winY", -1);
+    s.winW = j.value("winW", 1400);
+    s.winH = j.value("winH", 860);
+    s.winMaximized = j.value("winMaximized", false);
     s.audioPreset = static_cast<AudioPreset>(j.value("audioPreset", 1));
     if (j.contains("eqGainsDb") && j["eqGainsDb"].is_array() && j["eqGainsDb"].size() == 5) {
         for (size_t i = 0; i < 5; ++i) s.eqGainsDb[i] = j["eqGainsDb"][i].get<float>();

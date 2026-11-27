@@ -442,16 +442,17 @@ void AppUI::render() {
         renderStagePanel(true);
         ImGui::EndChild();
     } else if (m_activeTab == MainTab::Playlists) {
-        ImGui::BeginChild("##Sidebar", ImVec2(240.0f, contentHeight), true);
+        float winW = ImGui::GetContentRegionAvail().x;
+        float sidebarW = std::clamp(winW * 0.17f, 175.0f, 250.0f);
+        float stageW = std::clamp(winW * 0.24f, 240.0f, 380.0f);
+        float centerW = winW - sidebarW - stageW - 18.0f;
+        if (centerW < 280.0f) centerW = 280.0f;
+
+        ImGui::BeginChild("##Sidebar", ImVec2(sidebarW, contentHeight), true);
         renderSidebar();
         ImGui::EndChild();
 
         ImGui::SameLine();
-
-        float availW = ImGui::GetContentRegionAvail().x;
-        float stageW = 340.0f;
-        float centerW = availW - stageW - 10.0f;
-        if (centerW < 300.0f) centerW = 300.0f;
 
         ImGui::BeginChild("##CenterMain", ImVec2(centerW, contentHeight), true);
         renderPlaylistsTab();
@@ -463,10 +464,10 @@ void AppUI::render() {
         renderStagePanel(false);
         ImGui::EndChild();
     } else {
-        float availW = ImGui::GetContentRegionAvail().x;
-        float stageW = 320.0f;
-        float centerW = availW - stageW - 10.0f;
-        if (centerW < 360.0f) centerW = 360.0f;
+        float winW = ImGui::GetContentRegionAvail().x;
+        float stageW = std::clamp(winW * 0.23f, 230.0f, 360.0f);
+        float centerW = winW - stageW - 10.0f;
+        if (centerW < 300.0f) centerW = 300.0f;
 
         ImGui::BeginChild("##TabMain", ImVec2(centerW, contentHeight), true);
         switch (m_activeTab) {
@@ -499,47 +500,89 @@ void AppUI::render() {
     ImGui::End();
 }
 
+void AppUI::toggleOsFullscreen() {
+    if (!m_window) return;
+    if (!m_osFullscreen) {
+        glfwGetWindowPos(m_window, &m_savedWinX, &m_savedWinY);
+        glfwGetWindowSize(m_window, &m_savedWinW, &m_savedWinH);
+
+        // Pick whichever monitor contains the center of the window (works on Monitor 1, 2, etc.)
+        int count = 0;
+        GLFWmonitor** monitors = glfwGetMonitors(&count);
+        GLFWmonitor* best = glfwGetPrimaryMonitor();
+        int cx = m_savedWinX + m_savedWinW / 2;
+        int cy = m_savedWinY + m_savedWinH / 2;
+        for (int i = 0; i < count; ++i) {
+            int mx = 0, my = 0;
+            glfwGetMonitorPos(monitors[i], &mx, &my);
+            const GLFWvidmode* mode = glfwGetVideoMode(monitors[i]);
+            if (mode && cx >= mx && cx < mx + mode->width && cy >= my && cy < my + mode->height) {
+                best = monitors[i];
+                break;
+            }
+        }
+        const GLFWvidmode* mode = glfwGetVideoMode(best);
+        if (mode) {
+            glfwSetWindowMonitor(m_window, best, 0, 0, mode->width, mode->height, mode->refreshRate);
+            m_osFullscreen = true;
+            m_fullscreenMode = true;
+        }
+    } else {
+        glfwSetWindowMonitor(m_window, nullptr, m_savedWinX, m_savedWinY, m_savedWinW, m_savedWinH, 0);
+        m_osFullscreen = false;
+        m_fullscreenMode = false;
+    }
+}
+
 void AppUI::renderTopBar() {
     TemplatePalette pal = getTemplatePalette(m_library.activeTemplate());
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.04f, 0.04f, 0.05f, 1.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 8.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f, 8.0f));
     ImGui::BeginChild("##TopBar", ImVec2(0.0f, 52.0f), true, ImGuiWindowFlags_NoScrollbar);
 
+    float winW = ImGui::GetWindowWidth();
+    bool compactBar = (winW < 1080.0f);
+
     // Left: YouTube Music style red circle + brand
-    m_icons.draw("youtubemusic", 24.0f, pal.accent);
-    ImGui::SameLine(0.0f, 8.0f);
-    ImGui::SetWindowFontScale(1.12f);
-    ImGui::TextUnformatted("StreamPulse");
-    ImGui::SetWindowFontScale(1.0f);
+    m_icons.draw("youtubemusic", 22.0f, pal.accent);
+    if (!compactBar) {
+        ImGui::SameLine(0.0f, 6.0f);
+        ImGui::SetWindowFontScale(1.08f);
+        ImGui::TextUnformatted("StreamPulse");
+        ImGui::SetWindowFontScale(1.0f);
+    }
 
     // Center-Left: Clean YouTube Music navigation pills
-    ImGui::SameLine(170.0f);
+    ImGui::SameLine(0.0f, compactBar ? 10.0f : 18.0f);
     auto tabBtn = [&](MainTab tab, const char* label, const char* icon) {
         bool active = (m_activeTab == tab);
         ImGui::PushStyleColor(ImGuiCol_Button, active ? pal.accent : ImVec4(0.13f, 0.13f, 0.15f, 1.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 16.0f);
         m_icons.draw(icon, 16.0f, active ? ImVec4(1, 1, 1, 1) : pal.textMuted);
-        ImGui::SameLine(0.0f, 5.0f);
+        ImGui::SameLine(0.0f, 4.0f);
         if (ImGui::Button(label)) {
             m_activeTab = tab;
             m_fullscreenMode = false;
         }
         ImGui::PopStyleVar();
         ImGui::PopStyleColor();
-        ImGui::SameLine(0.0f, 8.0f);
+        ImGui::SameLine(0.0f, compactBar ? 4.0f : 7.0f);
     };
 
     tabBtn(MainTab::Playlists, "Accueil", "playlist");
-    tabBtn(MainTab::YouTubeMusic, "YT Music", "youtubemusic");
+    tabBtn(MainTab::YouTubeMusic, compactBar ? "YTM" : "YT Music", "youtubemusic");
     tabBtn(MainTab::TikTok, "TikTok", "tiktok");
-    tabBtn(MainTab::Queue, ("File (" + std::to_string(m_queue.size()) + ")").c_str(), "queue");
-    tabBtn(MainTab::Downloads, "Downloads", "download");
+    tabBtn(MainTab::Queue, ("File(" + std::to_string(m_queue.size()) + ")").c_str(), "queue");
+    tabBtn(MainTab::Downloads, compactBar ? "DL" : "Downloads", "download");
     tabBtn(MainTab::Stats, "Stats", "stats");
 
-    // Right: Aligned utility controls
-    float rightStart = std::max(720.0f, ImGui::GetWindowWidth() - 405.0f);
-    ImGui::SameLine(rightStart);
-    ImGui::SetNextItemWidth(105.0f);
+    // Right: Responsive aligned utility controls
+    float rightW = compactBar ? 290.0f : 375.0f;
+    float rightX = winW - rightW;
+    if (rightX > ImGui::GetCursorPosX()) {
+        ImGui::SameLine(rightX);
+    }
+    ImGui::SetNextItemWidth(compactBar ? 85.0f : 102.0f);
     const char* tplNames[] = { "YT Music", "Spotify", "TikTok", "Minimal" };
     int curTpl = static_cast<int>(m_library.activeTemplate());
     if (ImGui::Combo("##TemplateCombo", &curTpl, tplNames, 4)) {
@@ -548,14 +591,14 @@ void AppUI::renderTopBar() {
         m_library.save();
         applyTemplateStyle(nextTpl, m_vk);
     }
-    ImGui::SameLine(0.0f, 8.0f);
-    if (ImGui::Button("+ Importer")) m_showImportModal = true;
-    ImGui::SameLine(0.0f, 8.0f);
+    ImGui::SameLine(0.0f, 6.0f);
+    if (ImGui::Button(compactBar ? "+" : "+ Importer")) m_showImportModal = true;
+    ImGui::SameLine(0.0f, 6.0f);
     if (m_icons.button("##top_settings", "settings", 18.0f, m_activeTab == MainTab::Settings ? pal.accent : pal.textPrimary)) {
         m_activeTab = MainTab::Settings;
         m_fullscreenMode = false;
     }
-    ImGui::SameLine(0.0f, 8.0f);
+    ImGui::SameLine(0.0f, 6.0f);
 
     bool offline = m_library.offlineMode();
     bool netOk = m_sync.isNetworkAvailable();
@@ -564,7 +607,7 @@ void AppUI::renderTopBar() {
         : (netOk ? ImVec4(0.14f, 0.55f, 0.30f, 1.0f) : ImVec4(0.55f, 0.45f, 0.15f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_Button, btnCol);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 16.0f);
-    if (ImGui::Button(offline ? "Hors Ligne" : "En Ligne")) {
+    if (ImGui::Button(offline ? (compactBar ? "Off" : "Hors Ligne") : (compactBar ? "On" : "En Ligne"))) {
         m_library.setOfflineMode(!offline);
         m_library.save();
         if (offline) m_sync.refreshNetworkStatusAsync();
@@ -1328,7 +1371,11 @@ void AppUI::renderStagePanel(bool isFullscreen) {
     m_icons.draw(m_player.hasVideo() ? "video" : "music", 18.0f, pal.accent);
     ImGui::SameLine();
     ImGui::TextColored(pal.accent, isFullscreen ? "PLEIN ECRAN" : "LECTURE");
-    ImGui::SameLine(ImGui::GetWindowWidth() - 56.0f);
+    ImGui::SameLine(ImGui::GetWindowWidth() - 96.0f);
+    if (ImGui::SmallButton(m_osFullscreen ? "Fenêtre" : "Écran")) {
+        toggleOsFullscreen();
+    }
+    ImGui::SameLine();
     if (m_icons.button("##stage_fs", isFullscreen ? "fullscreen_exit" : "fullscreen", 18.0f, pal.textPrimary)) {
         m_fullscreenMode = !m_fullscreenMode;
     }
@@ -1431,21 +1478,24 @@ void AppUI::renderPlayerBar() {
     ImGui::SameLine(0.0f, 14.0f);
     ImGui::TextDisabled("%s / %s", formatTime(pos).c_str(), dur > 0.1 ? formatTime(dur).c_str() : "--:--");
 
-    // Center: Cover + Title + Artist (clamped so it never overlaps right controls)
+    // Center: Cover + Title + Artist (responsive width)
     float winW = ImGui::GetWindowWidth();
-    if (m_hasCurrentTrack) {
-        ImGui::SameLine(winW * 0.30f);
+    float rightW = (winW < 980.0f) ? 310.0f : 385.0f;
+    if (m_hasCurrentTrack && winW >= 720.0f) {
+        float centerX = std::max(230.0f, winW * 0.28f);
+        float metaW = std::max(80.0f, (winW - rightW) - centerX - 60.0f);
+        ImGui::SameLine(centerX);
         ImTextureID barCov = m_coverTexture.isValid() ? m_coverTexture.imguiId() : m_defaultCoverTexture.imguiId();
         ImGui::Image(barCov, ImVec2(42.0f, 42.0f));
         ImGui::SameLine(0.0f, 10.0f);
-        ImGui::BeginChild("##BarMeta", ImVec2(winW * 0.34f, 44.0f), false, ImGuiWindowFlags_NoScrollbar);
+        ImGui::BeginChild("##BarMeta", ImVec2(metaW, 44.0f), false, ImGuiWindowFlags_NoScrollbar);
         ImGui::TextUnformatted(m_currentTrack.title.c_str());
         ImGui::TextDisabled("%s", m_currentTrack.artist.c_str());
         ImGui::EndChild();
     }
 
     // Right: Volume % + Shuffle + Repeat (Off/1/All) + Fullscreen
-    ImGui::SameLine(std::max(560.0f, winW - 395.0f));
+    ImGui::SameLine(std::max(260.0f, winW - rightW));
     bool muted = m_player.isMuted();
     if (m_icons.button("##mute", muted ? "volume_mute" : "volume_high", 18.0f, pal.textPrimary)) {
         m_player.setMuted(!muted);

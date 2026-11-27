@@ -69,6 +69,10 @@ private:
     void loadCoverImage(const std::string& path);
     void createDefaultCover();
     ImTextureID getTrackThumb(const Track& t);
+    void toggleOsFullscreen();
+
+    bool m_osFullscreen = false;
+    int m_savedWinX = 100, m_savedWinY = 100, m_savedWinW = 1400, m_savedWinH = 860;
 
     VulkanContext& m_vk;
     GLFWwindow* m_window = nullptr;

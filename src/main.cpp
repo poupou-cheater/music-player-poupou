@@ -35,11 +35,23 @@ int main() {
         return 1;
     }
 
+    LibraryManager library;
+    library.load("data/library.json");
+    AppSettings initSettings = library.settings();
+
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    GLFWwindow* window = glfwCreateWindow(1400, 860, "StreamPulse - C++ Vulkan Media Player", nullptr, nullptr);
+    int startW = (initSettings.winW >= 640) ? initSettings.winW : 1400;
+    int startH = (initSettings.winH >= 480) ? initSettings.winH : 860;
+    GLFWwindow* window = glfwCreateWindow(startW, startH, "StreamPulse - C++ Vulkan Media Player", nullptr, nullptr);
     if (!window) {
         glfwTerminate();
         return 1;
+    }
+    if (initSettings.winX >= -32000 && initSettings.winY >= -32000 && initSettings.winX != -1) {
+        glfwSetWindowPos(window, initSettings.winX, initSettings.winY);
+    }
+    if (initSettings.winMaximized) {
+        glfwMaximizeWindow(window);
     }
 
     VulkanContext vk;
@@ -109,9 +121,6 @@ int main() {
     IconStore icons;
     icons.loadAll(vk, "assets/icons", 64);
 
-    LibraryManager library;
-    library.load("data/library.json");
-
     StatsManager stats;
     stats.load("data/stats.json");
 
@@ -161,6 +170,24 @@ int main() {
             vk.renderFrame(drawData);
             vk.presentFrame();
         }
+    }
+
+    // Save exact OS window position, size, and maximized state on exit
+    {
+        auto st = library.settings();
+        st.winMaximized = (glfwGetWindowAttrib(window, GLFW_MAXIMIZED) == GLFW_TRUE);
+        if (!st.winMaximized) {
+            int wx = 0, wy = 0, ww = 0, wh = 0;
+            glfwGetWindowPos(window, &wx, &wy);
+            glfwGetWindowSize(window, &ww, &wh);
+            if (ww >= 640 && wh >= 480) {
+                st.winX = wx;
+                st.winY = wy;
+                st.winW = ww;
+                st.winH = wh;
+            }
+        }
+        library.updateSettings(st);
     }
 
     vk.waitIdle();

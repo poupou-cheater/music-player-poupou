@@ -89,7 +89,7 @@ MediaAction MediaKeys::pollGlobalMediaKey() {
     else if (hk == HK_PREV) act = MediaAction::Prev;
     else if (hk == HK_STOP) act = MediaAction::Stop;
 
-    if (act == MediaAction::None && (!m_exclusive || !m_hotkeysRegistered)) {
+    if (act == MediaAction::None && (!m_exclusive || !m_hotkeysRegistered || m_forceFocus)) {
         bool pp = (GetAsyncKeyState(VK_MEDIA_PLAY_PAUSE) & 0x8000) != 0;
         bool nx = (GetAsyncKeyState(VK_MEDIA_NEXT_TRACK) & 0x8000) != 0;
         bool pv = (GetAsyncKeyState(VK_MEDIA_PREV_TRACK) & 0x8000) != 0;
@@ -106,9 +106,6 @@ MediaAction MediaKeys::pollGlobalMediaKey() {
         m_prevStop = st;
     }
 
-    if (act != MediaAction::None && m_forceFocus) {
-        focusAppWindow();
-    }
     return act;
 }
 
