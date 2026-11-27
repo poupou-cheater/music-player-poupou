@@ -478,7 +478,7 @@ void AppUI::render() {
                                  ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
                                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     ImGui::Begin("##MainRoot", nullptr, rootFlags);
     ImGui::PopStyleVar();
 
@@ -487,12 +487,17 @@ void AppUI::render() {
 
     if (!hideBars) {
         renderTopBar();
-        ImGui::Spacing();
     }
 
     float playerBarHeight = hideBars ? 0.0f : 76.0f;
-    float contentHeight = ImGui::GetContentRegionAvail().y - (hideBars ? 0.0f : (playerBarHeight + 12.0f));
-    if (contentHeight < 180.0f) contentHeight = 180.0f;
+    float bodyHeight = ImGui::GetContentRegionAvail().y - (hideBars ? 0.0f : (playerBarHeight + 4.0f));
+    if (bodyHeight < 180.0f) bodyHeight = 180.0f;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 6.0f));
+    ImGui::BeginChild("##MiddleBody", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_AlwaysUseWindowPadding,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar();
+    float contentHeight = ImGui::GetContentRegionAvail().y;
 
     if (m_fullscreenMode) {
         ImGui::BeginChild("##FullscreenStage", ImVec2(0.0f, contentHeight), false,
@@ -548,9 +553,9 @@ void AppUI::render() {
         renderStagePanel(false);
         ImGui::EndChild();
     }
+    ImGui::EndChild(); // ##MiddleBody
 
     if (!hideBars) {
-        ImGui::Spacing();
         TemplatePalette barPal = activePalette();
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(barPal.bgSidebar.x + 0.04f, barPal.bgSidebar.y + 0.04f, barPal.bgSidebar.z + 0.06f, 1.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 0.0f));
@@ -605,8 +610,11 @@ void AppUI::toggleOsFullscreen() {
 void AppUI::renderTopBar() {
     TemplatePalette pal = getTemplatePalette(m_library.activeTemplate());
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.04f, 0.04f, 0.05f, 1.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f, 8.0f));
-    ImGui::BeginChild("##TopBar", ImVec2(0.0f, 52.0f), true, ImGuiWindowFlags_NoScrollbar);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 9.0f));
+    ImGui::BeginChild("##TopBar", ImVec2(0.0f, 46.0f), false,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
     float winW = ImGui::GetWindowWidth();
     bool compactBar = (winW < 1080.0f);
@@ -663,6 +671,7 @@ void AppUI::renderTopBar() {
         ImGui::SameLine(0.0f, compactBar ? 4.0f : 8.0f);
     };
 
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14.0f);
     textTabBtn(MainTab::Playlists, "Accueil");
     iconTabBtn(MainTab::YouTubeMusic, "##tab_ytm", "youtubemusic", "YouTube Music");
     iconTabBtn(MainTab::TikTok, "##tab_tt", "tiktok", "TikTok");
@@ -728,7 +737,7 @@ void AppUI::renderTopBar() {
     ImGui::PopStyleVar(2);
 
     ImGui::EndChild();
-    ImGui::PopStyleVar();
+    ImGui::PopStyleVar(3);
     ImGui::PopStyleColor();
 }
 
