@@ -79,8 +79,8 @@ target_link_libraries(imgui_lib PUBLIC
     Vulkan::Headers
 )
 
-# Main Application
-add_executable(StreamPulse
+# Main Application (WIN32 GUI subsystem, no console window)
+add_executable(StreamPulse WIN32
     src/main.cpp
     src/third_party_impl.cpp
     src/vulkan/VulkanContext.cpp
@@ -126,6 +126,10 @@ target_link_libraries(StreamPulse PRIVATE
     ole32
     shell32
 )
+
+if (MSVC)
+    target_link_options(StreamPulse PRIVATE "/ENTRY:mainCRTStartup")
+endif()
 
 # Copy assets & tools to output directory after build
 add_custom_command(TARGET StreamPulse POST_BUILD

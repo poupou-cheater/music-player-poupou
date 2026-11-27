@@ -1,4 +1,5 @@
 #include "library/PlatformSync.hpp"
+#include "ui/AppLog.hpp"
 
 #include <windows.h>
 #include <winhttp.h>
@@ -147,6 +148,7 @@ void PlatformSync::stop() {
 }
 
 void PlatformSync::setStatus(const std::string& msg) {
+    AppLog::instance().add("[Sync] " + msg);
     std::lock_guard<std::mutex> lock(m_statusMutex);
     m_statusMsg = msg;
 }

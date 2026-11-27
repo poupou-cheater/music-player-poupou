@@ -1,4 +1,5 @@
 #include "ui/AppUI.hpp"
+#include "ui/AppLog.hpp"
 #include "ui/ImageLoader.hpp"
 #include "ui/Templates.hpp"
 #include "vulkan/VulkanContext.hpp"
@@ -1429,6 +1430,23 @@ void AppUI::renderSettingsTab() {
                 s.activeCustomThemeIndex = static_cast<int>(s.customThemes.size()) - 1;
                 changed = true;
             }
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Console")) {
+            if (ImGui::Button("Effacer les logs")) {
+                AppLog::instance().clear();
+            }
+            ImGui::Separator();
+            ImGui::BeginChild("##AppConsoleScroll", ImVec2(0.0f, 0.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
+            auto lines = AppLog::instance().snapshot();
+            for (const auto& l : lines) {
+                ImGui::TextUnformatted(l.c_str());
+            }
+            if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
+                ImGui::SetScrollHereY(1.0f);
+            }
+            ImGui::EndChild();
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
