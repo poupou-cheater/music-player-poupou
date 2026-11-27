@@ -139,6 +139,13 @@ void PlatformSync::stop() {
             if (p) TerminateProcess(static_cast<HANDLE>(p), 1);
         }
     }
+    {
+        std::lock_guard<std::mutex> lock(m_httpMutex);
+        for (void* h : m_activeHttpSessions) {
+            if (h) WinHttpCloseHandle(static_cast<HINTERNET>(h));
+        }
+        m_activeHttpSessions.clear();
+    }
     m_fastQueue.cv.notify_all();
     m_syncQueue.cv.notify_all();
     m_dlQueue.cv.notify_all();
@@ -389,7 +396,11 @@ bool PlatformSync::downloadFileWinHttp(const std::string& url, const std::string
 
     HINTERNET hSession = WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, nullptr, nullptr, 0);
     if (!hSession) return false;
-    WinHttpSetTimeouts(hSession, 4000, 4000, 5000, 5000);
+    {
+        std::lock_guard<std::mutex> lock(m_httpMutex);
+        m_activeHttpSessions.push_back(hSession);
+    }
+    WinHttpSetTimeouts(hSession, 2500, 2500, 3000, 3000);
     DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
     WinHttpSetOption(hSession, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
 
@@ -424,6 +435,10 @@ bool PlatformSync::downloadFileWinHttp(const std::string& url, const std::string
 
     if (hReq) WinHttpCloseHandle(hReq);
     WinHttpCloseHandle(hConnect);
+    {
+        std::lock_guard<std::mutex> lock(m_httpMutex);
+        m_activeHttpSessions.erase(std::remove(m_activeHttpSessions.begin(), m_activeHttpSessions.end(), hSession), m_activeHttpSessions.end());
+    }
     WinHttpCloseHandle(hSession);
     return success;
 }

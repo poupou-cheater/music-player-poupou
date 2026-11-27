@@ -60,7 +60,6 @@ int main() {
         if (mon && mode) {
             glfwSetWindowMonitor(window, mon, 0, 0, mode->width, mode->height, mode->refreshRate);
         }
-        glfwShowWindow(window);
     } else if (initSettings.winMaximized) {
         int mCount = 0;
         GLFWmonitor** monitors = glfwGetMonitors(&mCount);
@@ -72,17 +71,16 @@ int main() {
             glfwGetMonitorPos(mon, &mx, &my);
             glfwSetWindowPos(window, mx + 40, my + 40);
         }
-        glfwShowWindow(window);
-        glfwMaximizeWindow(window);
     } else {
         if (initSettings.winX >= -32000 && initSettings.winY >= -32000 && initSettings.winX != -1) {
             glfwSetWindowPos(window, initSettings.winX, initSettings.winY);
         }
-        glfwShowWindow(window);
     }
 
-    // Enable Windows Dark Title Bar + Set App Icon from embedded resource 101
+    // Enable Windows Dark Title Bar + Dark Background Brush + Set App Icon from embedded resource 101
     if (HWND hwnd = glfwGetWin32Window(window)) {
+        HBRUSH darkBrush = CreateSolidBrush(RGB(15, 15, 18));
+        SetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND, reinterpret_cast<LONG_PTR>(darkBrush));
         BOOL useDark = TRUE;
         DwmSetWindowAttribute(hwnd, 20 /*DWMWA_USE_IMMERSIVE_DARK_MODE*/, &useDark, sizeof(useDark));
         DwmSetWindowAttribute(hwnd, 19, &useDark, sizeof(useDark));
@@ -179,6 +177,36 @@ int main() {
     AppUI ui(vk, icons, library, sync, player, stats, discord, mediaKeys);
     ui.init(window);
 
+    // Render dark mini-loading splash frame BEFORE showing the window (zero white flash)
+    {
+        vk.beginFrame();
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(vp->WorkPos);
+        ImGui::SetNextWindowSize(vp->WorkSize);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.06f, 0.06f, 0.07f, 1.0f));
+        ImGui::Begin("##SplashLoad", nullptr,
+                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoInputs);
+        ImVec2 sz = vp->WorkSize;
+        ImGui::SetCursorPos(ImVec2(sz.x * 0.5f - 65.0f, sz.y * 0.5f - 14.0f));
+        ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.90f, 1.0f), "Chargement...");
+        ImGui::End();
+        ImGui::PopStyleColor();
+        ImGui::Render();
+        ImDrawData* dd = ImGui::GetDrawData();
+        if (dd->DisplaySize.x > 0.0f && dd->DisplaySize.y > 0.0f) {
+            vk.renderFrame(dd);
+            vk.presentFrame();
+        }
+    }
+    glfwShowWindow(window);
+    if (initSettings.winMaximized && !initSettings.winOsFullscreen) {
+        glfwMaximizeWindow(window);
+    }
+
     glfwSetWindowSizeLimits(window, 340, 480, GLFW_DONT_CARE, GLFW_DONT_CARE);
     auto lastTime = std::chrono::steady_clock::now();
 
@@ -264,6 +292,10 @@ int main() {
         library.save();
         stats.save();
     }
+
+    // Hide window immediately so closing feels instant while background threads clean up
+    glfwHideWindow(window);
+    glfwPollEvents();
 
     vk.waitIdle();
     ui.shutdown();

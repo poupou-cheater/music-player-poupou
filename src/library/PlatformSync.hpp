@@ -147,6 +147,8 @@ private:
     std::mutex m_procMutex;
     void* m_jobHandle = nullptr;
     std::vector<void*> m_activeProcesses;
+    std::mutex m_httpMutex;
+    std::vector<void*> m_activeHttpSessions;
 
     mutable std::mutex m_streamCacheMutex;
     std::unordered_map<std::string, std::string> m_streamCache;
