@@ -767,7 +767,6 @@ void AppUI::renderTopBar() {
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14.0f);
     textTabBtn(MainTab::Playlists, "Accueil");
     iconTabBtn(MainTab::YouTubeMusic, "##tab_ytm", "youtubemusic", "YouTube Music");
-    iconTabBtn(MainTab::TikTok, "##tab_tt", "tiktok", "TikTok");
     iconTabBtn(MainTab::Downloads, "##tab_dl", "download", "Downloads");
     textTabBtn(MainTab::Queue, "File attente");
 
@@ -1383,6 +1382,15 @@ void AppUI::renderSearchTab(Platform plat) {
         triggerSearch(limit);
     }
     ImGui::EndDisabled();
+    ImGui::SameLine();
+    const char* searchViewModes[] = { "Liste", "Grandes Cartes" };
+    ImGui::SetNextItemWidth(125.0f);
+    if (ImGui::Combo("##SearchViewMode", &m_viewMode, searchViewModes, 2)) {
+        auto st = m_library.settings();
+        st.viewMode = m_viewMode;
+        m_library.updateSettings(st);
+        m_library.save();
+    }
     if (searching) {
         ImGui::SameLine();
         ImGui::TextDisabled("Recherche en cours...");
@@ -1393,7 +1401,51 @@ void AppUI::renderSearchTab(Platform plat) {
     std::lock_guard<std::mutex> lock(m_searchMutex);
     float tableH = ImGui::GetContentRegionAvail().y - 38.0f;
     if (tableH < 120.0f) tableH = 120.0f;
-    if (ImGui::BeginTable(isTT ? "##TTTable" : "##YTMTable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY, ImVec2(0.0f, tableH))) {
+    if (m_viewMode == 1) {
+        ImGui::BeginChild("##SearchGridScroll", ImVec2(0.0f, tableH), false);
+        float avail = ImGui::GetContentRegionAvail().x - 18.0f;
+        float targetCardW = 165.0f * m_uiScale;
+        float spacing = 12.0f;
+        int cols = std::max(1, static_cast<int>((avail + spacing) / (targetCardW + spacing)));
+        float cardW = std::floor((avail - spacing * (cols - 1)) / static_cast<float>(cols));
+        float imgSide = std::max(64.0f, cardW - 6.0f);
+        int colIdx = 0;
+        for (size_t i = 0; i < results.size(); ++i) {
+            const Track& t = results[i];
+            std::string sid = std::to_string(i);
+            if (colIdx > 0) ImGui::SameLine(0.0f, spacing);
+            ImGui::BeginGroup();
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0, 0, 0, 0));
+            if (ImGui::ImageButton(("##sgbtn_" + sid).c_str(), getTrackThumb(t), ImVec2(imgSide, imgSide))) {
+                playTrack("", t);
+            }
+            ImGui::PopStyleColor(3);
+            ImGui::PopStyleVar(2);
+            if (ImGui::BeginPopupContextItem(("##sgctx_" + sid).c_str())) {
+                if (ImGui::MenuItem("Écouter maintenant")) playTrack("", t);
+                if (ImGui::MenuItem("Ajouter à la file d'attente (+ Queue)")) enqueueTrack("", t);
+                if (ImGui::MenuItem("Ajouter à la playlist sélectionnée")) {
+                    m_library.addTrackToPlaylist(m_selectedPlaylistId.empty() ? "ytm_favorites" : m_selectedPlaylistId, t);
+                    m_library.save();
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Télécharger Audio (M4A)")) m_sync.queueDirectDownload(t, m_selectedPlaylistId, false);
+                if (ImGui::MenuItem("Télécharger Vidéo (MP4)")) m_sync.queueDirectDownload(t, m_selectedPlaylistId, true);
+                ImGui::EndPopup();
+            }
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + cardW - 4.0f);
+            ImGui::Text("%s", t.title.c_str());
+            ImGui::TextDisabled("%s", t.artist.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndGroup();
+            colIdx = (colIdx + 1) % cols;
+        }
+        ImGui::EndChild();
+    } else if (ImGui::BeginTable(isTT ? "##TTTable" : "##YTMTable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY, ImVec2(0.0f, tableH))) {
         ImGui::TableSetupColumn("Cover", ImGuiTableColumnFlags_WidthFixed, 60.0f);
         ImGui::TableSetupColumn("Titre & Auteur", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Durée", ImGuiTableColumnFlags_WidthFixed, 64.0f);
