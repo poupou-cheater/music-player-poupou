@@ -1,0 +1,15 @@
+# Build & IDE
+build/
+.vs/
+*.user
+*.suo
+*.sln.docstates
+x64/
+Debug/
+Release/
+
+# Runtime tools, cache, downloads & local user data
+tools/*.exe
+data/
+downloads/
+cache/
