@@ -604,8 +604,8 @@ void AppUI::renderTopBar() {
     float winW = ImGui::GetWindowWidth();
     bool compactBar = (winW < 1080.0f);
 
-    // Left: YouTube Music style red circle + brand
-    m_icons.draw("youtubemusic", 22.0f, pal.accent);
+    // Left: App Logo + Brand
+    m_icons.draw("app_logo", 24.0f, ImVec4(1, 1, 1, 1));
     if (!compactBar) {
         ImGui::SameLine(0.0f, 6.0f);
         ImGui::SetWindowFontScale(1.08f);

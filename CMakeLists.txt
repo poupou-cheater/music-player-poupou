@@ -82,6 +82,7 @@ target_link_libraries(imgui_lib PUBLIC
 # Main Application (WIN32 GUI subsystem, no console window)
 add_executable(StreamPulse WIN32
     src/main.cpp
+    assets/app_icon.rc
     src/third_party_impl.cpp
     src/vulkan/VulkanContext.cpp
     src/vulkan/VulkanTexture.cpp

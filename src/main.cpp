@@ -82,13 +82,18 @@ int main() {
         glfwShowWindow(window);
     }
 
-    // Enable Windows Dark Title Bar (DWMWA_USE_IMMERSIVE_DARK_MODE)
+    // Enable Windows Dark Title Bar + Set App Icon from embedded resource 101
     if (HWND hwnd = glfwGetWin32Window(window)) {
         BOOL useDark = TRUE;
         DwmSetWindowAttribute(hwnd, 20 /*DWMWA_USE_IMMERSIVE_DARK_MODE*/, &useDark, sizeof(useDark));
         DwmSetWindowAttribute(hwnd, 19, &useDark, sizeof(useDark));
         COLORREF captionCol = RGB(12, 12, 14);
         DwmSetWindowAttribute(hwnd, 35 /*DWMWA_CAPTION_COLOR*/, &captionCol, sizeof(captionCol));
+
+        HICON hIconBig = static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101), IMAGE_ICON, 64, 64, 0));
+        HICON hIconSmall = static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101), IMAGE_ICON, 32, 32, 0));
+        if (hIconBig) SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(hIconBig));
+        if (hIconSmall) SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(hIconSmall));
     }
 
     VulkanContext vk;

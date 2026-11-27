@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B1324"/>
+      <stop offset="100%" stop-color="#190E2B"/>
+    </linearGradient>
+    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2DF2FF" stop-opacity="0.65"/>
+      <stop offset="100%" stop-color="#C83BFF" stop-opacity="0.65"/>
+    </linearGradient>
+    <linearGradient id="noteGrad" x1="20%" y1="0%" x2="85%" y2="100%">
+      <stop offset="0%" stop-color="#2DF2FF"/>
+      <stop offset="50%" stop-color="#6B7BFF"/>
+      <stop offset="100%" stop-color="#D93BFF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded dark glass square -->
+  <rect x="24" y="24" width="464" height="464" rx="108" fill="url(#bgGrad)" stroke="url(#borderGrad)" stroke-width="8"/>
+
+  <!-- Glowing crescent / disc behind note -->
+  <path d="M292,188 A112,112 0 1,1 186,368 A88,88 0 0,0 292,232 Z" fill="url(#noteGrad)" opacity="0.88"/>
+
+  <!-- Stylized music note -->
+  <path d="M254,112 L302,112 C304,148 330,174 366,178 L366,226 C336,224 312,212 296,194 L296,304 C296,354 256,392 206,392 C156,392 118,354 118,304 C118,254 156,216 206,216 C216,216 226,218 234,221 L234,270 C226,266 216,264 206,264 C182,264 166,282 166,304 C166,326 182,344 206,344 C232,344 248,326 248,298 L248,112 Z"
+        fill="url(#noteGrad)" stroke="#8CF7FF" stroke-opacity="0.45" stroke-width="4"/>
+</svg>
