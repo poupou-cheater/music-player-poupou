@@ -104,6 +104,8 @@ private:
 
     // Stage modes & 3s auto-hide
     bool m_fullscreenMode = false;
+    float m_stageAnim = 0.0f;
+    float m_focusAnim = 0.0f;
     int m_viewMode = 0; // 0 = Liste YT Music, 1 = Grandes Cartes, 2 = Compact
     float m_uiScale = 1.0f;
     int m_consecutiveErrors = 0;

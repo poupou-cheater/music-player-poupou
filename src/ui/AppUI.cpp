@@ -246,6 +246,12 @@ void AppUI::playNext() {
             if (m_repeatMode == 2) nextQ = 0; // Repeat Queue
             else {
                 m_playingFromQueue = false;
+                m_player.stop();
+                m_hasCurrentTrack = false;
+                m_currentTrack = Track{};
+                m_currentPlaylistId.clear();
+                m_playbackNotice.clear();
+                m_fullscreenMode = false;
                 return;
             }
         }
@@ -270,7 +276,16 @@ void AppUI::playNext() {
     for (size_t i = 0; i < pl->tracks.size(); ++i) {
         if (pl->tracks[i].id == m_currentTrack.id) {
             size_t nextIdx = (i + 1) % pl->tracks.size();
-            if (nextIdx == 0 && m_repeatMode != 2) return; // Stop at end unless Repeat Playlist
+            if (nextIdx == 0 && m_repeatMode != 2) {
+                // Stop completely after the last track unless Repeat All
+                m_player.stop();
+                m_hasCurrentTrack = false;
+                m_currentTrack = Track{};
+                m_currentPlaylistId.clear();
+                m_playbackNotice.clear();
+                m_fullscreenMode = false;
+                return;
+            }
             m_playingFromQueue = false;
             playTrack(pl->id, pl->tracks[nextIdx]);
             return;
@@ -519,16 +534,32 @@ void AppUI::render() {
     ImGui::PopStyleVar();
     float contentHeight = ImGui::GetContentRegionAvail().y;
 
-    if (m_fullscreenMode) {
-        ImGui::BeginChild("##FullscreenStage", ImVec2(0.0f, contentHeight), false,
+    float targetAnim = m_hasCurrentTrack ? 1.0f : 0.0f;
+    float animStep = ImGui::GetIO().DeltaTime * 4.0f;
+    if (m_stageAnim < targetAnim) m_stageAnim = std::min(1.0f, m_stageAnim + animStep);
+    else if (m_stageAnim > targetAnim) m_stageAnim = std::max(0.0f, m_stageAnim - animStep);
+    float easedStage = 1.0f - std::pow(1.0f - m_stageAnim, 3.0f);
+
+    float targetFocus = m_fullscreenMode ? 1.0f : 0.0f;
+    float focusStep = ImGui::GetIO().DeltaTime * 4.5f;
+    if (m_focusAnim < targetFocus) m_focusAnim = std::min(1.0f, m_focusAnim + focusStep);
+    else if (m_focusAnim > targetFocus) m_focusAnim = std::max(0.0f, m_focusAnim - focusStep);
+    float easedFocus = 1.0f - std::pow(1.0f - m_focusAnim, 3.0f);
+
+    if (m_focusAnim > 0.01f) {
+        float offsetY = contentHeight * (1.0f - easedFocus);
+        if (offsetY > 0.5f) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + offsetY);
+        ImGui::BeginChild("##FullscreenStage", ImVec2(0.0f, std::max(1.0f, contentHeight - offsetY)), false,
                           ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         renderStagePanel(true);
         ImGui::EndChild();
     } else if (m_activeTab == MainTab::Playlists) {
         float winW = ImGui::GetContentRegionAvail().x;
         float sidebarW = std::clamp(winW * 0.17f, 175.0f, 250.0f);
-        float stageW = std::clamp(winW * 0.24f, 240.0f, 380.0f);
-        float centerW = winW - sidebarW - stageW - 18.0f;
+        float fullStageW = std::clamp(winW * 0.24f, 240.0f, 380.0f);
+        float stageW = fullStageW * easedStage;
+        float gap = (stageW >= 4.0f) ? 18.0f : 10.0f;
+        float centerW = winW - sidebarW - stageW - gap;
         if (centerW < 280.0f) centerW = 280.0f;
 
         ImGui::BeginChild("##Sidebar", ImVec2(sidebarW, contentHeight), true,
@@ -542,16 +573,19 @@ void AppUI::render() {
         renderPlaylistsTab();
         ImGui::EndChild();
 
-        ImGui::SameLine();
-
-        ImGui::BeginChild("##StagePanel", ImVec2(0.0f, contentHeight), true,
-                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        renderStagePanel(false);
-        ImGui::EndChild();
+        if (stageW >= 4.0f) {
+            ImGui::SameLine();
+            ImGui::BeginChild("##StagePanel", ImVec2(0.0f, contentHeight), true,
+                              ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+            renderStagePanel(false);
+            ImGui::EndChild();
+        }
     } else {
         float winW = ImGui::GetContentRegionAvail().x;
-        float stageW = std::clamp(winW * 0.23f, 230.0f, 360.0f);
-        float centerW = winW - stageW - 10.0f;
+        float fullStageW = std::clamp(winW * 0.23f, 230.0f, 360.0f);
+        float stageW = fullStageW * easedStage;
+        float gap = (stageW >= 4.0f) ? 10.0f : 0.0f;
+        float centerW = winW - stageW - gap;
         if (centerW < 300.0f) centerW = 300.0f;
 
         ImGui::BeginChild("##TabMain", ImVec2(centerW, contentHeight), true);
@@ -566,12 +600,13 @@ void AppUI::render() {
         }
         ImGui::EndChild();
 
-        ImGui::SameLine();
-
-        ImGui::BeginChild("##StagePanel", ImVec2(0.0f, contentHeight), true,
-                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        renderStagePanel(false);
-        ImGui::EndChild();
+        if (stageW >= 4.0f) {
+            ImGui::SameLine();
+            ImGui::BeginChild("##StagePanel", ImVec2(0.0f, contentHeight), true,
+                              ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+            renderStagePanel(false);
+            ImGui::EndChild();
+        }
     }
     ImGui::EndChild(); // ##MiddleBody
 
@@ -1837,18 +1872,9 @@ void AppUI::renderSettingsTab() {
 void AppUI::renderStagePanel(bool isFullscreen) {
     TemplatePalette pal = getTemplatePalette(m_library.activeTemplate());
 
-    m_icons.draw(m_player.hasVideo() ? "video" : "music", 18.0f, pal.accent);
-    ImGui::SameLine();
-    ImGui::TextColored(pal.accent, isFullscreen ? "PLEIN ECRAN" : "LECTURE");
-    ImGui::SameLine(ImGui::GetWindowWidth() - 36.0f);
-    if (m_icons.button("##stage_fs", isFullscreen ? "fullscreen_exit" : "fullscreen", 18.0f, pal.textPrimary)) {
-        m_fullscreenMode = !m_fullscreenMode;
-    }
-    ImGui::Separator();
-
     float availW = ImGui::GetContentRegionAvail().x;
     float totalH = ImGui::GetContentRegionAvail().y;
-    float mediaH = isFullscreen ? (totalH - 95.0f) : std::min(availW * 0.72f, totalH * 0.44f);
+    float mediaH = isFullscreen ? (totalH - 8.0f) : std::min(availW * 0.72f, totalH * 0.44f);
     if (mediaH < 120.0f) mediaH = 120.0f;
 
     if (m_player.hasVideo() && m_videoTexture.isValid()) {
@@ -1857,24 +1883,39 @@ void AppUI::renderStagePanel(bool isFullscreen) {
         float drawH = drawW / aspect;
         if (drawH > mediaH) { drawH = mediaH; drawW = drawH * aspect; }
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - drawW) * 0.5f);
+        if (isFullscreen) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (totalH - drawH) * 0.5f);
         ImGui::Image(m_videoTexture.imguiId(), ImVec2(drawW, drawH));
     } else {
         ImTextureID coverId = m_coverTexture.isValid() ? m_coverTexture.imguiId() : m_defaultCoverTexture.imguiId();
         float side = std::min(availW, mediaH);
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - side) * 0.5f);
+        if (isFullscreen) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (totalH - side) * 0.5f);
         ImGui::Image(coverId, ImVec2(side, side));
     }
-
-    ImGui::Spacing();
-    if (m_hasCurrentTrack) {
-        m_icons.draw(platformIconKey(m_currentTrack.platform), 16.0f, pal.accent);
-        ImGui::SameLine();
-        ImGui::TextWrapped("%s", m_currentTrack.title.c_str());
-        ImGui::TextDisabled("%s", m_currentTrack.artist.c_str());
-    } else {
-        ImGui::TextDisabled("Aucune lecture en cours");
+    if (ImGui::BeginPopupContextItem("##stage_media_ctx")) {
+        if (ImGui::MenuItem("Arrêter la lecture")) {
+            m_player.stop();
+            m_hasCurrentTrack = false;
+            m_currentTrack = Track{};
+            m_currentPlaylistId.clear();
+            m_playbackNotice.clear();
+            m_fullscreenMode = false;
+        }
+        ImGui::EndPopup();
     }
-    if (!m_playbackNotice.empty()) ImGui::TextColored(pal.accentSecondary, "%s", m_playbackNotice.c_str());
+
+    if (!isFullscreen) {
+        ImGui::Spacing();
+        if (m_hasCurrentTrack) {
+            m_icons.draw(platformIconKey(m_currentTrack.platform), 16.0f, pal.accent);
+            ImGui::SameLine();
+            ImGui::TextWrapped("%s", m_currentTrack.title.c_str());
+            ImGui::TextDisabled("%s", m_currentTrack.artist.c_str());
+        } else {
+            ImGui::TextDisabled("Aucune lecture en cours");
+        }
+        if (!m_playbackNotice.empty()) ImGui::TextColored(pal.accentSecondary, "%s", m_playbackNotice.c_str());
+    }
     std::string err = m_player.lastError();
     if (!err.empty()) ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "%s", err.c_str());
 
@@ -2001,7 +2042,7 @@ void AppUI::renderPlayerBar() {
     }
 
     // Fixed right-aligned controls
-    float rx = rightStartX;
+    float rx = rightStartX + 44.0f;
     ImGui::SetCursorPos(ImVec2(rx, centerY - 7.0f));
     float volPct = m_player.volume() * 100.0f;
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 2.0f));
@@ -2051,14 +2092,14 @@ void AppUI::renderPlayerBar() {
         m_library.save();
     }
 
-    rx += 44.0f;
-    ImGui::SetCursorPos(ImVec2(rx, centerY - 16.0f));
-    if (m_icons.button("##bar_fs", m_fullscreenMode ? "fullscreen_exit" : "fullscreen", 24.0f, pal.textPrimary)) {
-        m_fullscreenMode = !m_fullscreenMode;
-    }
-
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(3);
+
+    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+        !ImGui::IsAnyItemHovered() &&
+        ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        m_fullscreenMode = !m_fullscreenMode;
+    }
 }
 
 static std::string browseFileWin32(const wchar_t* filter) {
