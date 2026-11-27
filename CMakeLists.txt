@@ -121,6 +121,7 @@ target_link_libraries(StreamPulse PRIVATE
     winhttp
     windowscodecs
     winmm
+    dwmapi
     shlwapi
     ole32
     shell32

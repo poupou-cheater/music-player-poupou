@@ -419,9 +419,10 @@ void AppUI::render() {
 
     ImGuiWindowFlags rootFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
                                  ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                                 ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+                                 ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
+                                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 10.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
     ImGui::Begin("##MainRoot", nullptr, rootFlags);
     ImGui::PopStyleVar();
 
@@ -434,7 +435,7 @@ void AppUI::render() {
     }
 
     float playerBarHeight = hideBars ? 0.0f : 90.0f;
-    float contentHeight = ImGui::GetContentRegionAvail().y - (hideBars ? 0.0f : (playerBarHeight + 8.0f));
+    float contentHeight = ImGui::GetContentRegionAvail().y - (hideBars ? 0.0f : (playerBarHeight + 14.0f));
     if (contentHeight < 180.0f) contentHeight = 180.0f;
 
     if (m_fullscreenMode) {

@@ -9,7 +9,10 @@
 #include "ui/MediaKeys.hpp"
 #include "ui/AppUI.hpp"
 
+#define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3.h>
+#include <GLFW/glfw3native.h>
+#include <dwmapi.h>
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
@@ -52,6 +55,15 @@ int main() {
     }
     if (initSettings.winMaximized) {
         glfwMaximizeWindow(window);
+    }
+
+    // Enable Windows Dark Title Bar (DWMWA_USE_IMMERSIVE_DARK_MODE)
+    if (HWND hwnd = glfwGetWin32Window(window)) {
+        BOOL useDark = TRUE;
+        DwmSetWindowAttribute(hwnd, 20 /*DWMWA_USE_IMMERSIVE_DARK_MODE*/, &useDark, sizeof(useDark));
+        DwmSetWindowAttribute(hwnd, 19, &useDark, sizeof(useDark));
+        COLORREF captionCol = RGB(12, 12, 14);
+        DwmSetWindowAttribute(hwnd, 35 /*DWMWA_CAPTION_COLOR*/, &captionCol, sizeof(captionCol));
     }
 
     VulkanContext vk;
