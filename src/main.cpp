@@ -243,6 +243,9 @@ int main() {
         }
     });
 
+    constexpr auto kTargetFrameDur = std::chrono::microseconds(16667); // 60 FPS cap
+    auto nextFrameTime = std::chrono::steady_clock::now();
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -250,10 +253,19 @@ int main() {
         glfwGetFramebufferSize(window, &fbW, &fbH);
         if (fbW == 0 || fbH == 0) {
             glfwWaitEvents();
+            nextFrameTime = std::chrono::steady_clock::now();
             continue;
         }
 
         tickFrame();
+
+        nextFrameTime += kTargetFrameDur;
+        auto now = std::chrono::steady_clock::now();
+        if (nextFrameTime > now) {
+            std::this_thread::sleep_until(nextFrameTime);
+        } else {
+            nextFrameTime = now;
+        }
     }
 
     // Save exact OS window position, size, monitor index, maximized, and OS fullscreen state on exit

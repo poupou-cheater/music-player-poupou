@@ -45,6 +45,7 @@ public:
     void shutdown();
     void update(double dtSeconds);
     void render();
+    bool needsContinuousRender() const;
 
 private:
     void renderTopBar();
@@ -150,6 +151,7 @@ private:
     VulkanTexture m_coverTexture;
     VulkanTexture m_defaultCoverTexture;
     std::unordered_map<std::string, VulkanTexture> m_thumbCache;
+    std::vector<std::string> m_thumbLru;
     int m_thumbsUploadedThisFrame = 0;
     std::vector<uint8_t> m_videoUploadBuf;
     std::string m_loadedCoverPath;

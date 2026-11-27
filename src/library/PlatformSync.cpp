@@ -166,10 +166,15 @@ std::string PlatformSync::statusMessage() const {
 }
 
 void PlatformSync::refreshNetworkStatusAsync() {
+    if (m_library.offlineMode()) {
+        m_networkAvailable.store(false);
+        return;
+    }
     m_fastQueue.push({TaskType::CheckNetwork, "", "", "", Platform::YouTubeMusic, false, 12, nullptr, nullptr});
 }
 
 void PlatformSync::checkUpdatesAsync() {
+    if (m_library.offlineMode()) return;
     {
         std::lock_guard<std::mutex> lock(m_updateMutex);
         m_updateStatus = "Vérification...";

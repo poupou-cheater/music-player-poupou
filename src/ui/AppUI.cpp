@@ -162,24 +162,55 @@ void AppUI::loadCoverImage(const std::string& path) {
     }
 }
 
+bool AppUI::needsContinuousRender() const {
+    if (m_player.hasVideo() && m_player.isPlaying()) return true;
+    if (m_sync.activeTaskCount() > 0 || m_rebindingSlot >= 0) return true;
+    auto animActive = [](float v, float target) { return std::abs(v - target) > 0.005f; };
+    if (animActive(m_stageAnim, m_hasCurrentTrack ? 1.0f : 0.0f)) return true;
+    if (animActive(m_focusAnim, m_fullscreenMode ? 1.0f : 0.0f)) return true;
+    if (animActive(m_focusQueueAnim, m_focusQueueOpen ? 1.0f : 0.0f)) return true;
+    if (animActive(m_mobQueueAnim, m_mobileFocusQueue ? 1.0f : 0.0f)) return true;
+    auto st = m_library.settings();
+    bool idleHide = m_fullscreenMode && st.autoHideBarsFullscreen && (m_idleSeconds >= 3.0);
+    bool hideTop = idleHide && st.autoHideTopBar;
+    bool hideBot = (idleHide && st.autoHideBottomBar) || (isMobileLayout() && m_fullscreenMode);
+    if (animActive(m_topBarAnim, hideTop ? 0.0f : 1.0f)) return true;
+    if (animActive(m_bottomBarAnim, hideBot ? 0.0f : 1.0f)) return true;
+    if (m_idleSeconds < 0.45) return true;
+    return false;
+}
+
 ImTextureID AppUI::getTrackThumb(const Track& t) {
-    if (t.localThumbnailPath.empty() || !fs::exists(t.localThumbnailPath)) {
+    if (t.localThumbnailPath.empty()) {
         return m_defaultCoverTexture.imguiId();
     }
     auto it = m_thumbCache.find(t.id);
     if (it != m_thumbCache.end() && it->second.isValid()) {
         return it->second.imguiId();
     }
-    if (m_thumbCache.size() > 1200 || m_thumbsUploadedThisFrame >= 4) {
+    if (m_thumbsUploadedThisFrame >= 3) {
+        return m_defaultCoverTexture.imguiId();
+    }
+    if (!fs::exists(t.localThumbnailPath)) {
         return m_defaultCoverTexture.imguiId();
     }
     std::vector<uint8_t> rgba;
     uint32_t w = 0, h = 0;
-    if (loadImageRGBA(t.localThumbnailPath, rgba, w, h)) {
+    if (loadImageRGBA(t.localThumbnailPath, rgba, w, h, 220)) {
         VulkanTexture tex;
         if (tex.createFromRGBA(m_vk, rgba.data(), w, h)) {
             ++m_thumbsUploadedThisFrame;
+            if (m_thumbCache.size() >= 180 && !m_thumbLru.empty()) {
+                std::string oldId = m_thumbLru.front();
+                m_thumbLru.erase(m_thumbLru.begin());
+                auto oldIt = m_thumbCache.find(oldId);
+                if (oldIt != m_thumbCache.end()) {
+                    oldIt->second.destroy(m_vk);
+                    m_thumbCache.erase(oldIt);
+                }
+            }
             m_thumbCache[t.id] = tex;
+            m_thumbLru.push_back(t.id);
             return m_thumbCache[t.id].imguiId();
         }
     }
