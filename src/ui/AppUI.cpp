@@ -1051,7 +1051,7 @@ void AppUI::renderPlaylistsTab() {
         float spacing = 12.0f;
         int cols = std::max(1, static_cast<int>((avail + spacing) / (targetCardW + spacing)));
         float cardW = std::floor((avail - spacing * (cols - 1)) / static_cast<float>(cols));
-        float imgSide = std::max(64.0f, cardW - 20.0f); // account for ImageButton FramePadding
+        float imgSide = std::max(64.0f, cardW - 6.0f);
         int colIdx = 0;
         for (size_t i = 0; i < pl.tracks.size(); ++i) {
             const Track& t = pl.tracks[i];
@@ -1062,9 +1062,16 @@ void AppUI::renderPlaylistsTab() {
             if (colIdx > 0) ImGui::SameLine(0.0f, spacing);
             ImGui::BeginGroup();
             ImGui::BeginDisabled(unavailableOffline);
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0, 0, 0, 0));
             if (ImGui::ImageButton(("##gbtn_" + t.id).c_str(), getTrackThumb(t), ImVec2(imgSide, imgSide))) {
                 playTrack(pl.id, t);
             }
+            ImGui::PopStyleColor(3);
+            ImGui::PopStyleVar(2);
             if (ImGui::BeginPopupContextItem(("##gctx_" + t.id).c_str())) {
                 if (ImGui::MenuItem("Écouter maintenant")) playTrack(pl.id, t);
                 if (ImGui::MenuItem("Ajouter à la file (+ Queue)")) enqueueTrack(pl.id, t);
