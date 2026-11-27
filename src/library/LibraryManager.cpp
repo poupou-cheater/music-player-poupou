@@ -162,6 +162,7 @@ static void to_json(json& j, const AppSettings& s) {
         {"winMaximized", s.winMaximized},
         {"winOsFullscreen", s.winOsFullscreen},
         {"winMonitorIndex", s.winMonitorIndex},
+        {"lastCacheCleanupEpoch", s.lastCacheCleanupEpoch},
         {"audioPreset", static_cast<int>(s.audioPreset)},
         {"eqGainsDb", s.eqGainsDb},
         {"autoHideBarsFullscreen", s.autoHideBarsFullscreen},
@@ -202,6 +203,7 @@ static void from_json(const json& j, AppSettings& s) {
     s.winMaximized = j.value("winMaximized", false);
     s.winOsFullscreen = j.value("winOsFullscreen", false);
     s.winMonitorIndex = j.value("winMonitorIndex", 0);
+    s.lastCacheCleanupEpoch = j.value("lastCacheCleanupEpoch", 0LL);
     s.audioPreset = static_cast<AudioPreset>(j.value("audioPreset", 1));
     if (j.contains("eqGainsDb") && j["eqGainsDb"].is_array() && j["eqGainsDb"].size() == 5) {
         for (size_t i = 0; i < 5; ++i) s.eqGainsDb[i] = j["eqGainsDb"][i].get<float>();

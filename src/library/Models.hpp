@@ -178,6 +178,7 @@ struct AppSettings {
     bool winMaximized = false;
     bool winOsFullscreen = false;
     int winMonitorIndex = 0;
+    long long lastCacheCleanupEpoch = 0;
     AudioPreset audioPreset = AudioPreset::YouTubeMusic;
     std::array<float, 5> eqGainsDb = { 2.0f, 1.0f, 0.0f, 1.5f, 1.0f }; // 60, 230, 910, 3.6k, 14k Hz
     bool autoHideBarsFullscreen = true;

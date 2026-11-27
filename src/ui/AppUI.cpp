@@ -87,7 +87,16 @@ void AppUI::init(GLFWwindow* window) {
     }
 
     if (!s.offlineMode) m_sync.syncAllAutoPlaylistsAsync();
-    else m_sync.cleanupOrphanCacheAsync();
+    else {
+        auto nowSec = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()
+        ).count();
+        if (nowSec - s.lastCacheCleanupEpoch >= 86400) {
+            s.lastCacheCleanupEpoch = nowSec;
+            m_library.updateSettings(s);
+            m_sync.cleanupOrphanCacheAsync();
+        }
+    }
 }
 
 void AppUI::shutdown() {

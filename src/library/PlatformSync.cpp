@@ -171,7 +171,15 @@ void PlatformSync::syncPlaylistAsync(const std::string& playlistId) {
 }
 
 void PlatformSync::syncAllAutoPlaylistsAsync() {
-    cleanupOrphanCacheAsync();
+    auto st = m_library.settings();
+    auto nowSec = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()
+    ).count();
+    if (nowSec - st.lastCacheCleanupEpoch >= 86400) {
+        st.lastCacheCleanupEpoch = nowSec;
+        m_library.updateSettings(st);
+        cleanupOrphanCacheAsync();
+    }
     if (m_library.offlineMode()) return;
     hydrateMissingThumbnailsAsync();
     auto lists = m_library.playlistsCopy();
