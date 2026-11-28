@@ -6,18 +6,34 @@
 #include <atomic>
 #include <chrono>
 
-static constexpr int HK_PLAY_PAUSE = 1001;
-static constexpr int HK_NEXT = 1002;
-static constexpr int HK_PREV = 1003;
-static constexpr int HK_STOP = 1004;
+static constexpr int HK_BASE_ID = 1000;
+static constexpr UINT kMediaVKeys[4] = {
+    VK_MEDIA_PLAY_PAUSE,
+    VK_MEDIA_NEXT_TRACK,
+    VK_MEDIA_PREV_TRACK,
+    VK_MEDIA_STOP
+};
+static constexpr UINT kModCombos[8] = {
+    0,
+    MOD_CONTROL,
+    MOD_SHIFT,
+    MOD_ALT,
+    MOD_CONTROL | MOD_SHIFT,
+    MOD_CONTROL | MOD_ALT,
+    MOD_SHIFT | MOD_ALT,
+    MOD_CONTROL | MOD_SHIFT | MOD_ALT
+};
+static constexpr int HK_TOTAL = 4 * 8;
 
 static WNDPROC g_origWndProc = nullptr;
 static std::atomic<int> g_pendingHotkey{0};
 
 static LRESULT CALLBACK mediaKeysWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (msg == WM_HOTKEY) {
-        if (wParam == HK_PLAY_PAUSE || wParam == HK_NEXT || wParam == HK_PREV || wParam == HK_STOP) {
-            g_pendingHotkey.store(static_cast<int>(wParam));
+        int id = static_cast<int>(wParam);
+        if (id >= HK_BASE_ID && id < HK_BASE_ID + HK_TOTAL) {
+            int actionIdx = (id - HK_BASE_ID) / 8;
+            g_pendingHotkey.store(actionIdx + 1);
             return 0;
         }
     }
@@ -57,19 +73,22 @@ void MediaKeys::updateHotkeys() {
     if (!m_hwnd) return;
     HWND hwnd = static_cast<HWND>(m_hwnd);
     if (m_hotkeysRegistered) {
-        UnregisterHotKey(hwnd, HK_PLAY_PAUSE);
-        UnregisterHotKey(hwnd, HK_NEXT);
-        UnregisterHotKey(hwnd, HK_PREV);
-        UnregisterHotKey(hwnd, HK_STOP);
+        for (int i = 0; i < HK_TOTAL; ++i) {
+            UnregisterHotKey(hwnd, HK_BASE_ID + i);
+        }
         m_hotkeysRegistered = false;
     }
     if (m_enabled && m_exclusive) {
         constexpr UINT kNoRepeat = 0x4000; // MOD_NOREPEAT
-        BOOL ok1 = RegisterHotKey(hwnd, HK_PLAY_PAUSE, kNoRepeat, VK_MEDIA_PLAY_PAUSE);
-        BOOL ok2 = RegisterHotKey(hwnd, HK_NEXT, kNoRepeat, VK_MEDIA_NEXT_TRACK);
-        BOOL ok3 = RegisterHotKey(hwnd, HK_PREV, kNoRepeat, VK_MEDIA_PREV_TRACK);
-        BOOL ok4 = RegisterHotKey(hwnd, HK_STOP, kNoRepeat, VK_MEDIA_STOP);
-        m_hotkeysRegistered = (ok1 || ok2 || ok3 || ok4);
+        bool anyOk = false;
+        for (int a = 0; a < 4; ++a) {
+            for (int m = 0; m < 8; ++m) {
+                if (RegisterHotKey(hwnd, HK_BASE_ID + a * 8 + m, kModCombos[m] | kNoRepeat, kMediaVKeys[a])) {
+                    anyOk = true;
+                }
+            }
+        }
+        m_hotkeysRegistered = anyOk;
     }
 }
 
@@ -86,27 +105,27 @@ MediaAction MediaKeys::pollGlobalMediaKey() {
     MediaAction act = MediaAction::None;
 
     int hk = g_pendingHotkey.exchange(0);
-    if (hk == HK_PLAY_PAUSE) act = MediaAction::PlayPause;
-    else if (hk == HK_NEXT) act = MediaAction::Next;
-    else if (hk == HK_PREV) act = MediaAction::Prev;
-    else if (hk == HK_STOP) act = MediaAction::Stop;
+    if (hk == 1) act = MediaAction::PlayPause;
+    else if (hk == 2) act = MediaAction::Next;
+    else if (hk == 3) act = MediaAction::Prev;
+    else if (hk == 4) act = MediaAction::Stop;
 
-    if (act == MediaAction::None && !m_hotkeysRegistered) {
-        bool pp = (GetAsyncKeyState(VK_MEDIA_PLAY_PAUSE) & 0x8000) != 0;
-        bool nx = (GetAsyncKeyState(VK_MEDIA_NEXT_TRACK) & 0x8000) != 0;
-        bool pv = (GetAsyncKeyState(VK_MEDIA_PREV_TRACK) & 0x8000) != 0;
-        bool st = (GetAsyncKeyState(VK_MEDIA_STOP) & 0x8000) != 0;
+    bool pp = (GetAsyncKeyState(VK_MEDIA_PLAY_PAUSE) & 0x8000) != 0;
+    bool nx = (GetAsyncKeyState(VK_MEDIA_NEXT_TRACK) & 0x8000) != 0;
+    bool pv = (GetAsyncKeyState(VK_MEDIA_PREV_TRACK) & 0x8000) != 0;
+    bool st = (GetAsyncKeyState(VK_MEDIA_STOP) & 0x8000) != 0;
 
+    if (act == MediaAction::None) {
         if (pp && !m_prevPlayPause) act = MediaAction::PlayPause;
         else if (nx && !m_prevNext) act = MediaAction::Next;
         else if (pv && !m_prevPrev) act = MediaAction::Prev;
         else if (st && !m_prevStop) act = MediaAction::Stop;
-
-        m_prevPlayPause = pp;
-        m_prevNext = nx;
-        m_prevPrev = pv;
-        m_prevStop = st;
     }
+
+    m_prevPlayPause = pp;
+    m_prevNext = nx;
+    m_prevPrev = pv;
+    m_prevStop = st;
 
     if (act != MediaAction::None) {
         static auto s_lastTrigger = std::chrono::steady_clock::now() - std::chrono::seconds(1);
