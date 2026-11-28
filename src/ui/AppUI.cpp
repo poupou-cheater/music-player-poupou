@@ -168,12 +168,13 @@ bool AppUI::needsContinuousRender() const {
     auto animActive = [](float v, float target) { return std::abs(v - target) > 0.005f; };
     if (animActive(m_stageAnim, m_hasCurrentTrack ? 1.0f : 0.0f)) return true;
     if (animActive(m_focusAnim, m_fullscreenMode ? 1.0f : 0.0f)) return true;
-    if (animActive(m_focusQueueAnim, m_focusQueueOpen ? 1.0f : 0.0f)) return true;
-    if (animActive(m_mobQueueAnim, m_mobileFocusQueue ? 1.0f : 0.0f)) return true;
     auto st = m_library.settings();
     bool idleHide = m_fullscreenMode && st.autoHideBarsFullscreen && (m_idleSeconds >= 3.0);
     bool hideTop = idleHide && st.autoHideTopBar;
     bool hideBot = (idleHide && st.autoHideBottomBar) || (isMobileLayout() && m_fullscreenMode);
+    bool hideFocusQueue = idleHide && st.autoHideFocusQueue;
+    if (animActive(m_focusQueueAnim, (m_focusQueueOpen && !hideFocusQueue) ? 1.0f : 0.0f)) return true;
+    if (animActive(m_mobQueueAnim, m_mobileFocusQueue ? 1.0f : 0.0f)) return true;
     if (animActive(m_topBarAnim, hideTop ? 0.0f : 1.0f)) return true;
     if (animActive(m_bottomBarAnim, hideBot ? 0.0f : 1.0f)) return true;
     if (m_idleSeconds < 0.45) return true;
@@ -472,9 +473,11 @@ void AppUI::update(double dtSeconds) {
     }
     handleShortcuts();
 
-    // Mouse idle detection for 3s auto-hide in fullscreen
+    // Mouse idle detection for 3s auto-hide in fullscreen (only when app is focused & hovered)
+    bool appFocused = m_window && (glfwGetWindowAttrib(m_window, GLFW_FOCUSED) != 0);
+    bool appHovered = m_window && (glfwGetWindowAttrib(m_window, GLFW_HOVERED) != 0);
     ImVec2 mp = ImGui::GetMousePos();
-    if (mp.x != m_lastMousePos.x || mp.y != m_lastMousePos.y || ImGui::IsAnyMouseDown()) {
+    if (appFocused && appHovered && (mp.x != m_lastMousePos.x || mp.y != m_lastMousePos.y || ImGui::IsAnyMouseDown())) {
         m_idleSeconds = 0.0;
         m_lastMousePos = mp;
     } else {
@@ -1839,6 +1842,8 @@ void AppUI::renderSettingsTab() {
                 if (ImGui::Checkbox("Top bar##ah_top", &s.autoHideTopBar)) changed = true;
                 ImGui::SameLine();
                 if (ImGui::Checkbox("Bottom bar##ah_bot", &s.autoHideBottomBar)) changed = true;
+                ImGui::SameLine();
+                if (ImGui::Checkbox("File d'attente##ah_fq", &s.autoHideFocusQueue)) changed = true;
                 ImGui::Unindent(22.0f);
             }
             if (ImGui::Checkbox("Vérifier les mises à jour au lancement", &s.autoCheckUpdates)) changed = true;
@@ -2478,9 +2483,11 @@ void AppUI::renderStagePanel(bool isFullscreen) {
         return;
     }
 
+    bool hideFocusQueue = isFullscreen && m_library.settings().autoHideBarsFullscreen &&
+                          m_library.settings().autoHideFocusQueue && (m_idleSeconds >= 3.0);
     float easedFQ = 0.0f;
     if (isFullscreen) {
-        float tgtFQ = m_focusQueueOpen ? 1.0f : 0.0f;
+        float tgtFQ = (m_focusQueueOpen && !hideFocusQueue) ? 1.0f : 0.0f;
         float fqStep = ImGui::GetIO().DeltaTime * 5.0f;
         if (m_focusQueueAnim < tgtFQ) m_focusQueueAnim = std::min(1.0f, m_focusQueueAnim + fqStep);
         else if (m_focusQueueAnim > tgtFQ) m_focusQueueAnim = std::max(0.0f, m_focusQueueAnim - fqStep);
@@ -2489,7 +2496,7 @@ void AppUI::renderStagePanel(bool isFullscreen) {
 
     float fullQueueW = isFullscreen ? std::clamp(availW * 0.23f, 230.0f, 320.0f) : 0.0f;
     float queueW = isFullscreen ? (fullQueueW * easedFQ) : 0.0f;
-    float reopenBtnW = (isFullscreen && queueW < 4.0f) ? 30.0f : 0.0f;
+    float reopenBtnW = (isFullscreen && queueW < 4.0f && !hideFocusQueue) ? 30.0f : 0.0f;
     float mediaAreaW = isFullscreen
         ? std::max(160.0f, availW - queueW - (queueW >= 4.0f ? 10.0f : 0.0f) - reopenBtnW)
         : availW;
@@ -2534,12 +2541,14 @@ void AppUI::renderStagePanel(bool isFullscreen) {
         ImGui::EndChild();
 
         if (queueW < 4.0f) {
-            ImGui::SameLine();
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8.0f);
-            if (ImGui::Button("<##fq_open", ImVec2(26.0f, 36.0f))) {
-                m_focusQueueOpen = true;
+            if (!hideFocusQueue) {
+                ImGui::SameLine();
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8.0f);
+                if (ImGui::Button("<##fq_open", ImVec2(26.0f, 36.0f))) {
+                    m_focusQueueOpen = true;
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Afficher la file d'attente");
             }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Afficher la file d'attente");
         } else {
             ImGui::SameLine();
             ImGui::BeginChild("##FocusQueue", ImVec2(0.0f, totalH), true,

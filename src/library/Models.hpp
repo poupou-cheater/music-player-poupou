@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-inline constexpr const char* APP_VERSION = "1.4.0";
+inline constexpr const char* APP_VERSION = "1.4.1";
 inline constexpr const char* APP_GITHUB_REPO = "poupou-cheater/music-player-poupou";
 
 enum class Platform {
@@ -206,6 +206,7 @@ struct AppSettings {
     bool autoHideBarsFullscreen = true;
     bool autoHideTopBar = true;
     bool autoHideBottomBar = true;
+    bool autoHideFocusQueue = false;
     bool autoCheckUpdates = true;
     bool autoInstallUpdates = false;
     bool enableMediaKeys = true;
